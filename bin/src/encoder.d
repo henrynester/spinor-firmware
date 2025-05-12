@@ -1,7 +1,7 @@
-bin/src/encoder.o: src/encoder.c src/pins.h \
+bin/src/encoder.o: src/encoder.c src/encoder.h \
+ /usr/lib/gcc/arm-none-eabi/12.2.1/include/stdint.h src/pins.h \
  lib/libopencm3/include/libopencm3/stm32/gpio.h \
  lib/libopencm3/include/libopencm3/cm3/common.h \
- /usr/lib/gcc/arm-none-eabi/12.2.1/include/stdint.h \
  /usr/lib/gcc/arm-none-eabi/12.2.1/include/stdbool.h \
  lib/libopencm3/include/libopencm3/stm32/memorymap.h \
  lib/libopencm3/include/libopencm3/stm32/f0/memorymap.h \

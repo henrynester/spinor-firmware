@@ -169,12 +169,11 @@ else
 		$(NULL)
 endif
 
-start_openocd:
+openocd:
+	-killall $(OOCD)
 	$(OOCD) -f interface/$(OOCD_INTERFACE).cfg \
 		-f target/$(OOCD_TARGET).cfg & \
 		$(NULL)
-kill_openocd:
-	killall $(OOCD)
 
 debug:
 	gdb-multiarch --command=gdb.cmd $(PROJECT).elf

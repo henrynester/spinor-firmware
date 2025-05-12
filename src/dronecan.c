@@ -1,30 +1,33 @@
 #include "dronecan.h"
 
+#include "config.h"
+#include "thermistor.h"
+
 #include "libopencm3/stm32/rcc.h"
 #include "libopencm3/stm32/gpio.h"
 #include "libcanard/canard.h"
 #include "libcanard/drivers/stm32/canard_stm32.h"
-#include "dsdl/dsdl_generated/include/dronecan_msgs.h"
 #include "uavcan.protocol.NodeStatus.h"
+#include "uavcan.protocol.GetNodeInfo.h"
 #include "uavcan.protocol.debug.KeyValue.h"
+#include "uavcan.protocol.param.GetSet.h"
 
 #include <string.h>
 
 #define CANARD_SPIN_PERIOD    500
 #define PUBLISHER_PERIOD_mS   25
 
+
 static CanardInstance g_canard;                //The library instance
 static uint8_t g_canard_memory_pool[1024];     //Arena for memory allocation, used by the library
 
-//////////////////////////////////////////////////////////////////////////////////////
-
-param_t * getParamByIndex(uint16_t index);
-param_t * getParamByName(uint8_t * name);
-void makeNodeStatusMessage(uint8_t buffer[UAVCAN_PROTOCOL_NODESTATUS_MAX_SIZE]);
-void readUniqueID(uint8_t* out_uid);
+static struct uavcan_protocol_NodeStatus node_status_msg;
+static struct uavcan_protocol_debug_KeyValue key_value_msg;
 
 //////////////////////////////////////////////////////////////////////////////////////
 
+void dronecan_handle_param_GetSet(CanardInstance* ins, CanardRxTransfer* transfer);
+void dronecan_params_default(void);
 
 bool shouldAcceptTransfer(const CanardInstance* ins,
                           uint64_t* out_data_type_signature,
@@ -32,60 +35,23 @@ bool shouldAcceptTransfer(const CanardInstance* ins,
                           CanardTransferType transfer_type,
                           uint8_t source_node_id)
 {
-
-  if ((transfer_type == CanardTransferTypeRequest) && (data_type_id == UAVCAN_PROTOCOL_GETNODEINFO_REQUEST_ID)) {
-    *out_data_type_signature = UAVCAN_PROTOCOL_GETNODEINFO_REQUEST_SIGNATURE;
-    return true;
-  }
-  if (data_type_id == UAVCAN_EQUIPMENT_ESC_RAWCOMMAND_ID) {
-    *out_data_type_signature = UAVCAN_EQUIPMENT_ESC_RAWCOMMAND_SIGNATURE;
-    return true;
-  }
   if (data_type_id == UAVCAN_PROTOCOL_PARAM_GETSET_ID) {
     *out_data_type_signature = UAVCAN_PROTOCOL_PARAM_GETSET_SIGNATURE;
     return true;
   }
   return false;
-
 }
 
 //////////////////////////////////////////////////////////////////////////////////////
 
 void onTransferReceived(CanardInstance* ins, CanardRxTransfer* transfer)
 {
-
-  if ((transfer->transfer_type == CanardTransferTypeRequest) && (transfer->data_type_id == UAVCAN_PROTOCOL_GETNODEINFO_REQUEST_ID)) {
-    getNodeInfoHandleCanard(transfer);
-  } 
-
-  if (transfer->data_type_id == UAVCAN_EQUIPMENT_ESC_RAWCOMMAND_ID) {
-    rawcmdHandleCanard(transfer);
-  }
-
   if (transfer->data_type_id == UAVCAN_PROTOCOL_PARAM_GETSET_ID) {
-    getsetHandleCanard(transfer);
+    dronecan_handle_param_GetSet(ins, transfer);
   }
 }
 
-
-void getNodeInfoHandleCanard(CanardRxTransfer* transfer)
-{
-  uint8_t buffer[UAVCAN_PROTOCOL_GETNODEINFO_RESPONSE_MAX_SIZE];
-  memset(buffer, 0, UAVCAN_PROTOCOL_GETNODEINFO_RESPONSE_MAX_SIZE);
-  uint16_t len = makeNodeInfoMessage(buffer);
-  int result = canardRequestOrRespond(&g_canard,
-                                      transfer->source_node_id,
-                                      UAVCAN_PROTOCOL_GETNODEINFO_RESPONSE_SIGNATURE,
-                                      UAVCAN_PROTOCOL_GETNODEINFO_RESPONSE_ID,
-                                      &transfer->transfer_id,
-                                      transfer->priority,
-                                      CanardResponse,
-                                      &buffer[0],
-                                      (uint16_t)len);
-}
-
-
-void uavcanInit(void)
+void dronecan_init(void)
 {
 
   CanardSTM32CANTimings timings;
@@ -105,30 +71,40 @@ void uavcanInit(void)
              shouldAcceptTransfer,              // Callback, see CanardShouldAcceptTransfer
              NULL);
  
-  canardSetLocalNodeID(&g_canard, 10);
+  dronecan_params_default();
+  canardSetLocalNodeID(&g_canard, (uint8_t)0x42);
 }
 
 
-void sendCanard(void)
+void dronecan_transmit(void)
 {
 
   const CanardCANFrame* txf = canardPeekTxQueue(&g_canard); 
-
-  while(txf) {
+  uint32_t t_start = g_uptime_ms;
+  while(txf && g_uptime_ms < (t_start + 10)) {
     const int tx_res = canardSTM32Transmit(txf);
-    if (tx_res < 0) {                 // Failure - drop the frame and report
+    if (tx_res < 0) { //Failure - drop the frame and report
 	    while(1);
     }
-    if(tx_res > 0) {
+    if(tx_res > 0) { //Success: transmit next frame
       canardPopTxQueue(&g_canard);
+      txf = canardPeekTxQueue(&g_canard); 
     }
-    txf = canardPeekTxQueue(&g_canard); 
+    //tx_res=0 means we don't have a tx mailbox available
+    //block in this loop until one becomes available
+    //causes: If disconnected from all other nodes, we get no ACKs and
+    //will keep trying to transmit what's in the mailbox forever
+    //OR, bus utilization is too high and we can't find time to
+    //transmit our lower priority message.
+    else {
+	    break;
+    }
   }
 
 }
 
 
-void receiveCanard(void)
+void dronecan_receive(void)
 {
   CanardCANFrame rx_frame;
   int res = canardSTM32Receive(&rx_frame);
@@ -137,275 +113,137 @@ void receiveCanard(void)
   } 
 }
 
-void spinCanard(void)
+void dronecan_publish_NodeStatus(void)
 {  
   static uint32_t spin_time = 0;
 
   if(g_uptime_ms <= spin_time + CANARD_SPIN_PERIOD) return;    // rate limiting
+  spin_time = g_uptime_ms;
   
   gpio_toggle(GPIOA, GPIO4);
-
-  spin_time = g_uptime_ms;
     
+  node_status_msg.uptime_sec = (g_uptime_ms / 1000); 
+  node_status_msg.health = UAVCAN_PROTOCOL_NODESTATUS_HEALTH_OK;
+  node_status_msg.mode = UAVCAN_PROTOCOL_NODESTATUS_MODE_OPERATIONAL;
+
   uint8_t buffer[UAVCAN_PROTOCOL_NODESTATUS_MAX_SIZE];    
   static uint8_t transfer_id = 0;                               // This variable MUST BE STATIC; refer to the libcanard documentation for the background
-  makeNodeStatusMessage(buffer);  
+  uint32_t len = uavcan_protocol_NodeStatus_encode(&node_status_msg, buffer);
   canardBroadcast(&g_canard, 
                   UAVCAN_PROTOCOL_NODESTATUS_SIGNATURE,
                   UAVCAN_PROTOCOL_NODESTATUS_ID,
                   &transfer_id,
                   CANARD_TRANSFER_PRIORITY_LOW,
                   buffer, 
-                  UAVCAN_PROTOCOL_NODESTATUS_MAX_SIZE);             //some indication
+                  len);             //some indication
+								    //
 }
 
-
-void publishCanard(void)
-{  
-
-  static uint32_t publish_time = 0;
-  static int step = 0;
-  if(g_uptime_ms <= publish_time + PUBLISHER_PERIOD_mS) {return;} // rate limiting
-  publish_time = g_uptime_ms;
-
-  uint8_t buffer[UAVCAN_PROTOCOL_DEBUG_KEYVALUE_MAX_SIZE];
-  memset(buffer,0,UAVCAN_PROTOCOL_DEBUG_KEYVALUE_MAX_SIZE);
-  step++;
-  if(step == 256) {
-    step = 0;
-  }
-  
-  float val = sine_wave[step];
-  static uint8_t transfer_id = 0;
-  canardEncodeScalar(buffer, 0, 32, &val);
-  memcpy(&buffer[4], "sin", 3);    
-  canardBroadcast(&g_canard, 
-                  UAVCAN_PROTOCOL_DEBUG_KEYVALUE_SIGNATURE,
-                  UAVCAN_PROTOCOL_DEBUG_KEYVALUE_ID,
-                  &transfer_id,
-                  CANARD_TRANSFER_PRIORITY_LOW,
-                  &buffer[0], 
-                  7);
-  memset(buffer,0x00,UAVCAN_PROTOCOL_DEBUG_KEYVALUE_MAX_SIZE);
-
-  val = step;
-  canardEncodeScalar(buffer, 0, 32, &val);
-  memcpy(&buffer[4], "stp", 3); 
-  canardBroadcast(&g_canard, 
-                  UAVCAN_PROTOCOL_DEBUG_KEYVALUE_SIGNATURE,
-                  UAVCAN_PROTOCOL_DEBUG_KEYVALUE_ID,
-                  &transfer_id,
-                  CANARD_TRANSFER_PRIORITY_LOW,
-                  &buffer[0], 
-                  7);
-
+void dronecan_publish_debug_KeyValue(char* key, float value, uint8_t* transfer_id) {
+	strcpy((char*)key_value_msg.key.data, key);
+	key_value_msg.key.len = 2;
+	key_value_msg.value = value;
+	uint8_t buffer[UAVCAN_PROTOCOL_DEBUG_KEYVALUE_MAX_SIZE];
+	uint32_t len = uavcan_protocol_debug_KeyValue_encode(&key_value_msg, buffer);
+	canardBroadcast(&g_canard, 
+			UAVCAN_PROTOCOL_DEBUG_KEYVALUE_SIGNATURE,
+			UAVCAN_PROTOCOL_DEBUG_KEYVALUE_ID,
+			transfer_id,
+			CANARD_TRANSFER_PRIORITY_LOW,
+			buffer, 
+			len);
 }
 
-
-void makeNodeStatusMessage(uint8_t buffer[UAVCAN_PROTOCOL_NODESTATUS_MAX_SIZE])
+void dronecan_handle_param_GetSet(CanardInstance* ins, CanardRxTransfer* transfer)
 {
-  uint8_t node_health = UAVCAN_PROTOCOL_NODESTATUS_HEALTH_OK;
-  uint8_t node_mode   = UAVCAN_PROTOCOL_NODESTATUS_MODE_OPERATIONAL;
-  memset(buffer, 0, UAVCAN_PROTOCOL_NODESTATUS_MAX_SIZE);
-  uint32_t uptime_sec = (g_uptime_ms / 1000);
-  canardEncodeScalar(buffer,  0, 32, &uptime_sec);
-  canardEncodeScalar(buffer, 32,  2, &node_health);
-  canardEncodeScalar(buffer, 34,  3, &node_mode);
-}
-
-
-uint16_t makeNodeInfoMessage(uint8_t buffer[UAVCAN_PROTOCOL_GETNODEINFO_RESPONSE_MAX_SIZE])
-{
-  memset(buffer, 0, UAVCAN_PROTOCOL_GETNODEINFO_RESPONSE_MAX_SIZE);
-  makeNodeStatusMessage(buffer);
-   
-  buffer[7] = APP_VERSION_MAJOR;
-  buffer[8] = APP_VERSION_MINOR;
-  buffer[9] = 1;                            // Optional field flags, VCS commit is set
-  uint32_t u32 = GIT_HASH;
-  canardEncodeScalar(buffer, 80, 32, &u32); 
-    
-  readUniqueID(&buffer[24]);
-  const size_t name_len = strlen(APP_NODE_NAME);
-  memcpy(&buffer[41], APP_NODE_NAME, name_len);
-  return 41 + name_len;
-}
-
-void readUniqueID(uint8_t* out_uid)
-{
-  for (uint8_t i = 0; i < UNIQUE_ID_LENGTH_BYTES; i++) {
-    out_uid[i] = i;
-  }
-}
-
-
-void rawcmdHandleCanard(CanardRxTransfer* transfer)
-{
-    
-  //int offset = 0;
-  //for (int i = 0; i<6; i++) {
-  //  if (canardDecodeScalar(transfer, offset, 14, true, &rc_pwm[i])<14) { break; }
-  //  offset += 14;
-  //}
-  // rcpwmUpdate(ar);
-
-}
-
-
-void showRcpwmonUart()
-{
-
-  //char str[5];
-  //itoa(rc_pwm[0],str,10);
-  //HAL_UART_Transmit(&huart1,str,5,0xffff);
-  //HAL_UART_Transmit(&huart1,"\n",2,0xffff);
-  //printArray(rc_pwm);
-
-}
-
-
-param_t parameters[] =
-{
-  {"MGeo parameter 0",  0, 10,  20,  15},
-  {"MGeo parameter 1",  1,  0, 100,  25},
-  {"MGeo parameter 2",  2,  2,   8,   3},
-};
-
-
-inline param_t * getParamByIndex(uint16_t index)
-{
-
-  if(index >= ARRAY_SIZE(parameters))  {
-    return NULL;
-  }
-  return &parameters[index];
-
-}
-
-
-inline param_t * getParamByName(uint8_t * name)
-{
-
-  for(uint16_t i = 0; i < ARRAY_SIZE(parameters); i++)
-  {
-    if(strncmp((char const*)name, (char const*)parameters[i].name,strlen((char const*)parameters[i].name)) == 0) {
-      return &parameters[i];
+    struct uavcan_protocol_param_GetSetRequest req;
+    if (uavcan_protocol_param_GetSetRequest_decode(transfer, &req)) {
+        return;
     }
-  }      
-  return NULL;
 
+    parameter_t *p = NULL;
+    if (req.name.len != 0) {
+        for (uint16_t i=0; i<ARRAY_SIZE(parameters); i++) {
+            if (req.name.len == strlen(parameters[i].name) &&
+                strncmp((const char *)req.name.data, parameters[i].name, req.name.len) == 0) {
+                p = &parameters[i];
+                break;
+            }
+        }
+    } else if (req.index < ARRAY_SIZE(parameters)) {
+        p = &parameters[req.index];
+    }
+    if (p != NULL && req.name.len != 0 && req.value.union_tag != UAVCAN_PROTOCOL_PARAM_VALUE_EMPTY) {
+        /*
+          this is a parameter set command. The implementation can
+          either choose to store the value in a persistent manner
+          immediately or can instead store it in memory and save to permanent storage on a
+         */
+        switch (p->type) {
+        case UAVCAN_PROTOCOL_PARAM_VALUE_INTEGER_VALUE:
+            *(p->value) = req.value.integer_value;
+            break;
+        case UAVCAN_PROTOCOL_PARAM_VALUE_REAL_VALUE:
+            *(p->value) = req.value.real_value;
+            break;
+        default:
+            return;
+        }
+	//some parameters need to be applied
+	//if(strcmp((const char*)p->name, "node_id") == 0) {
+		//canardSetLocalNodeID(ins, (uint8_t)config.node_id);
+	//}
+    }
+
+    /*
+      for both set and get we reply with the current value
+     */
+    struct uavcan_protocol_param_GetSetResponse pkt;
+    memset(&pkt, 0, sizeof(pkt));
+
+    if (p != NULL) {
+        switch (p->type) {
+        case UAVCAN_PROTOCOL_PARAM_VALUE_INTEGER_VALUE:
+            pkt.value.integer_value = *p->value;
+	    pkt.default_value.integer_value = p->default_value;
+	    pkt.min_value.integer_value = p->min_value;
+	    pkt.max_value.integer_value = p->max_value;
+            break;
+        case UAVCAN_PROTOCOL_PARAM_VALUE_REAL_VALUE:
+            pkt.value.real_value = *p->value;
+	    pkt.default_value.real_value = p->default_value;
+	    pkt.min_value.real_value = p->min_value;
+	    pkt.max_value.real_value = p->max_value;
+            break;
+	default:
+	    return;
+        }
+
+        pkt.value.union_tag = p->type;
+        pkt.default_value.union_tag = p->type;
+        pkt.min_value.union_tag = (enum uavcan_protocol_param_NumericValue_type_t)p->type;
+        pkt.max_value.union_tag = (enum uavcan_protocol_param_NumericValue_type_t)p->type;
+
+        pkt.name.len = strlen(p->name);
+        strcpy((char *)pkt.name.data, p->name);
+    }
+
+    uint8_t buffer[UAVCAN_PROTOCOL_PARAM_GETSET_RESPONSE_MAX_SIZE];
+    uint16_t total_size = uavcan_protocol_param_GetSetResponse_encode(&pkt, buffer);
+
+    canardRequestOrRespond(ins,
+                           transfer->source_node_id,
+                           UAVCAN_PROTOCOL_PARAM_GETSET_SIGNATURE,
+                           UAVCAN_PROTOCOL_PARAM_GETSET_ID,
+                           &transfer->transfer_id,
+                           transfer->priority,
+                           CanardResponse,
+                           &buffer[0],
+                           total_size);
 }
 
-
-uint16_t encodeParamCanard(param_t * p, uint8_t * buffer)
-{
-
-  uint8_t n     = 0;
-  int offset    = 0;
-  uint8_t tag   = 1;
-
-  if(p==NULL) {   
-    tag = 0;
-    canardEncodeScalar(buffer, offset, 5, &n);
-    offset += 5;
-    canardEncodeScalar(buffer, offset,3, &tag);
-    offset += 3;
-        
-    canardEncodeScalar(buffer, offset, 6, &n);
-    offset += 6;
-    canardEncodeScalar(buffer, offset,2, &tag);
-    offset += 2;
-
-    canardEncodeScalar(buffer, offset, 6, &n);
-    offset += 6;
-    canardEncodeScalar(buffer, offset, 2, &tag);
-    offset += 2;
-    buffer[offset / 8] = 0;
-    return ( offset / 8 + 1 );
-
-  }
-
-  canardEncodeScalar(buffer, offset, 5,&n);
-  offset += 5;
-  canardEncodeScalar(buffer, offset, 3, &tag);
-  offset += 3;
-  canardEncodeScalar(buffer, offset, 64, &p->val);
-  offset += 64;
-
-  canardEncodeScalar(buffer, offset, 5, &n);
-  offset += 5;
-  canardEncodeScalar(buffer, offset, 3, &tag);
-  offset += 3;
-  canardEncodeScalar(buffer, offset, 64, &p->defval);
-  offset += 64;
-    
-  canardEncodeScalar(buffer, offset, 6, &n);
-  offset += 6;
-  canardEncodeScalar(buffer, offset, 2, &tag);
-  offset += 2;
-  canardEncodeScalar(buffer, offset, 64, &p->max);
-  offset += 64;
-    
-  canardEncodeScalar(buffer, offset, 6, &n);
-  offset += 6;
-  canardEncodeScalar(buffer, offset,2,&tag);
-  offset += 2;
-  canardEncodeScalar(buffer, offset,64,&p->min);
-  offset += 64;
-    
-  memcpy(&buffer[offset / 8], p->name, strlen((char const*)p->name));
-  return  (offset/8 + strlen((char const*)p->name)); 
-
-}
-
-
-void getsetHandleCanard(CanardRxTransfer* transfer)
-{
-
-  uint16_t index = 0xFFFF;
-  uint8_t tag    = 0;
-  int offset     = 0;
-  int64_t val    = 0;
-
-  canardDecodeScalar(transfer, offset,  13, false, &index);
-  offset += 13;
-  canardDecodeScalar(transfer, offset, 3, false, &tag);
-  offset += 3;
-
-  if(tag == 1) {
-    canardDecodeScalar(transfer, offset, 64, false, &val);
-    offset += 64;
-  }
-
-  uint16_t n = transfer->payload_len - offset / 8 ;
-  uint8_t name[16]      = "";
-  for(int i = 0; i < n; i++) {
-    canardDecodeScalar(transfer, offset, 8, false, &name[i]);
-    offset += 8;
-  }
-
-  param_t * p = NULL;
-
-  if(strlen((char const*)name)) {
-    p = getParamByName(name);
-  } else {
-    p = getParamByIndex(index);
-  }
-
-  if((p)&&(tag == 1)) {
-    p->val = val;
-  }
-
-  uint8_t  buffer[64] = "";
-  uint16_t len = encodeParamCanard(p, buffer);
-  int result = canardRequestOrRespond(&g_canard,
-                                      transfer->source_node_id,
-                                      UAVCAN_PROTOCOL_PARAM_GETSET_SIGNATURE,
-                                      UAVCAN_PROTOCOL_PARAM_GETSET_ID,
-                                      &transfer->transfer_id,
-                                      transfer->priority,
-                                      CanardResponse,
-                                      &buffer[0],
-                                      (uint16_t)len);
-
+void dronecan_params_default(void) {
+	for(uint16_t i = 0; i < ARRAY_SIZE(parameters); i++) {
+		*parameters[i].value = parameters[i].default_value;
+	}
 }

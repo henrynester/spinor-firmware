@@ -10,8 +10,6 @@
 #include "libopencm3/cm3/nvic.h"
 #include "libopencm3/cm3/systick.h"
 
-void adc_configure_fast_channels(void);
-uint16_t adc_slow_sensor(uint8_t);
 void nvic_setup(void);
 void clocks_setup(void);
 void gpio_setup(void);
@@ -20,7 +18,8 @@ void pwm_timer_setup(void);
 void spi_setup(void);
 
 void nvic_setup() {
-	//nvic_enable_irq(NVIC_DMA1_CHANNEL1_IRQ);
+	//nvic_enable_irq(NVIC_TIM1_CC_IRQ);
+	nvic_enable_irq(NVIC_DMA1_CHANNEL1_IRQ);
 	//nvic_enable_irq(NVIC_ADC_COMP_IRQ);
 }
 
@@ -30,10 +29,17 @@ void gpio_setup(void) {
 	//LEDs set as outputs
 	gpio_mode_setup(LED_PORT, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, LED_R | LED_B);
 
-	//current meas and voltage sense set as inputs
+	//current meas and voltage sense set as analog inputs
 	gpio_mode_setup(IABC_PORT, GPIO_MODE_ANALOG, GPIO_PUPD_NONE, IABC_PIN); 
-	gpio_mode_setup(TEMP_PORT, GPIO_MODE_ANALOG, GPIO_PUPD_NONE, TEMP_PIN); 
 	gpio_mode_setup(VBUS_PORT, GPIO_MODE_ANALOG, GPIO_PUPD_NONE, VBUS_PIN); 
+	//thermistor current should be <140uA, but with 4.7k upper resistor and 3.3V
+	//applied, the current is >250uA (higher as T increases). To fix this,
+	//just set the analog in pins as open-drain outputs. When these are forced low,
+	//no current flows in the thermistor. When they are released, the thermistor
+	//sense voltage appears on the ADC input. perfect. No hardware filtering
+	//of the thermistor sense voltage occurs, so we don't have to wait for stabilization
+	gpio_set_output_options(TEMP_PORT, GPIO_OTYPE_OD, GPIO_OSPEED_LOW, TEMP_PIN);
+	gpio_mode_setup(TEMP_PORT, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, TEMP_PIN); 
 
 	//3-phase complementary PWM outputs connected to TIM1
 	gpio_mode_setup(PWMH_PORT, GPIO_MODE_AF, GPIO_PUPD_NONE, PWMH_PIN);
@@ -79,47 +85,58 @@ void adc_setup() {
 	// oscillator intended to clock the ADC, but then we would have some
 	// jitter in the timing of the ADC samples. Here we use the
 	// 48MHz APB clock / 4 = 12 MHz ADC clock
-	adc_set_clk_source(ADC, ADC_CLKSOURCE_PCLK_DIV4);
+	adc_set_clk_source(ADC1, ADC_CLKSOURCE_PCLK_DIV4);
 	//ADC must be powered down to run calibration. It is powered off at reset
 	adc_calibrate(ADC);
 	adc_power_on(ADC); // power up
-	//when triggered, convert all channels in sequence once, then stop.
-	adc_set_operation_mode(ADC, ADC_MODE_SCAN); 
-	//analog watchdog settings (used for phase overcurrent interrupt)
-	adc_enable_analog_watchdog_on_all_channels(ADC);
-	adc_set_watchdog_low_threshold(ADC, 1500);
-	adc_set_watchdog_high_threshold(ADC, 2500);
+	//when triggered, entire sequence then stop.
+	//adc_set_operation_mode(ADC, ADC_MODE_SCAN); 
+	//current sense amp outputs go into 100R shunt 10nF filter
+	//before entering ADC. We can calculate LSB/4 sampling time as
+	//Tsample,min = (Rin(100)+Rsw(1k))*(Cadc(8pF))*ln(2**(12bit+2))
+	// = 0.085us, 1.02 cycles at 12MHz adc clock
+	// use the lowest, 1.5-cycle sampling time
+	// The sampling time required for the 10k NTC thermistors is an order of
+	// magnitude higher, but we can just average that
+	adc_set_sample_time_on_all_channels(ADC, ADC_SMPR_SMP_007DOT5);
+	//select pins for conversion channels
+	//hardware forces sequence to be ordered by channel number,
+	ADC1_CHSELR = ADC_CHSELR_IABC_VBUS;
 	//set ADC to trigger from TIM1 OCREF4
+	adc_enable_discontinuous_mode(ADC);
 	adc_enable_external_trigger_regular(ADC, ADC_CFGR1_EXTSEL_TIM1_TRGO, ADC_CFGR1_EXTEN_RISING_EDGE);
-	//setup ADC DMA
-	adc_enable_dma_circular_mode(ADC);
-	dma_set_peripheral_address(DMA1, DMA_CHANNEL1, (uint32_t)(&ADC_DR(ADC)));
+	//setup single-pass DMA from ADC into array
+	adc_enable_dma(ADC);
+	dma_set_peripheral_address(DMA1, DMA_CHANNEL1, (uint32_t)(&ADC1_DR));
 	dma_set_peripheral_size(DMA1, DMA_CHANNEL1, DMA_CCR_PSIZE_16BIT);
-	dma_set_memory_address(DMA1, DMA_CHANNEL1, (uint32_t)(adc_buffer));
+	dma_set_memory_address(DMA1, DMA_CHANNEL1, (uint32_t)adc_buffer);
 	dma_set_memory_size(DMA1, DMA_CHANNEL1, DMA_CCR_MSIZE_16BIT);
 	dma_enable_memory_increment_mode(DMA1, DMA_CHANNEL1);
-	dma_enable_circular_mode(DMA1, DMA_CHANNEL1);
-	//dma_enable_transfer_complete_interrupt(DMA1, DMA_CHANNEL1);
-	//dma_enable_half_transfer_interrupt(DMA1, DMA_CHANNEL1);
 	dma_set_number_of_data(DMA1, DMA_CHANNEL1, ADC_BUFFER_SIZE);
 	dma_enable_channel(DMA1, DMA_CHANNEL1);
+	dma_enable_transfer_complete_interrupt(DMA1, DMA_CHANNEL1);
 
-	adc_configure_fast_channels();
+	ADC1_CR |= ADC_CR_ADSTART;
 }
 
 void pwm_timer_setup() {
 	//3-phase PWM timer setup
 	//timer upper limit sets PWM period
 	timer_set_period(TIM1, PWM_TIMER_RELOAD);
-	//down-up counting (CMS_CENTER_3)
+	//up-down counting mode, CCIF set only when counting upward
 	timer_set_mode(TIM1, 
 			TIM_CR1_CKD_CK_INT, 
-			TIM_CR1_CMS_CENTER_3, 
+			TIM_CR1_CMS_CENTER_2, 
 			TIM_CR1_DIR_UP);
 	//PWM mode 1 (meaning phase A,B,C output compares are ACTIVE when counter < compare register)
 	timer_set_oc_mode(TIM1, TIM_OC1, TIM_OCM_PWM1);
 	timer_set_oc_mode(TIM1, TIM_OC2, TIM_OCM_PWM1);
 	timer_set_oc_mode(TIM1, TIM_OC3, TIM_OCM_PWM1);
+	//for PWM channels, only latch in the register value
+	//at an "update event" (counter hits min or max)
+	timer_enable_oc_preload(TIM1, TIM_OC1);
+	timer_enable_oc_preload(TIM1, TIM_OC2);
+	timer_enable_oc_preload(TIM1, TIM_OC3);
 
 	//\/ allows forcing outputs to nonzero state when MOE cleared
 	//timer_set_enabled_off_state_in_idle_mode(TIM1);
@@ -148,81 +165,11 @@ void pwm_timer_setup() {
 	//direct OC4REF signal to TRGO output of TIM1
 	//we will use this to trigger the ADC
 	timer_set_master_mode(TIM1, TIM_CR2_MMS_COMPARE_OC4REF);
+	//enable interrupt when counter passes TIM_OC4 level moving upward
+	//timer_enable_irq(TIM1, TIM_SR_CC4IF);
 
 	//set the timer running. However, outputs are not enabled yet because MOE bit is cleared 
 	//call timer_enable_break_main_output() to set it
-	timer_enable_counter(TIM1);
-
-}
-
-uint16_t adc_slow_sensor(uint8_t channel) {
-	//CONFIGURE TO READ SLOW SENSOR
-	//make sure we are out of the current sense conversion time
-	if(timer_get_counter(TIM1) > PWM_MAX) {
-		return 0xFFFF;
-	}
-	volatile uint32_t t1 = systick_get_value();
-	//stop any ongoing conversions (there should be none) using ADSTP bit
-	ADC_CR(ADC) |= ADC_CR_ADSTP;
-	//hardware clears ADSTART (and ADSTP) when stop complete 
-	while(ADC_CR(ADC) & ADC_CR_ADSTART);
-	//use a slower sampling time because these sensors have ~10k output impedance
-	//minimum is 10.2 12MHz cycles, but we can go higher because we have
-	//plenty of time before we need to read the current sensors again (20kHz pwm)
-	//(28.5 sample+12.5 convert cycles) at 12MHz -> 3.5us
-	adc_set_sample_time_on_all_channels(ADC, ADC_SMPR_SMP_028DOT5);
-	//disable analog watchdog interrupt
-	adc_disable_watchdog_interrupt(ADC);
-	//select conversion channel
-	adc_set_regular_sequence(ADC, 1, &channel);
-	//disable DMA
-	adc_disable_dma(ADC);
-
-	//READ SLOW SENSOR
-	//clear sequence complete interrupt flag
-	ADC_ISR(ADC) |= ADC_ISR_EOC;
-	//ADSTART set, will trigger at next timer peak
-	ADC_CR(ADC) |= ADC_CR_ADSTART;
-	//loop until conversion completes
-	//good place to yield control :)
-	volatile uint32_t t2 = systick_get_value();
-	while(!adc_eoc(ADC));
-	uint16_t result = ADC_DR(ADC); 
-	volatile uint32_t t3=systick_get_value();
-
-	//RESTORE CONFIGURATION FOR CURRENT SENSORS
-	adc_configure_fast_channels();
-	volatile uint32_t t4=systick_get_value();
-
-	if(t4+t3+t2+t1) {
-		__asm__("nop");
-	}
-	
-	return result;
-}
-
-void adc_configure_fast_channels() {
-	//stop any ongoing conversions (there should be none) using ADSTP bit
-	ADC_CR(ADC) |= ADC_CR_ADSTP;
-	//hardware clears ADSTART (and ADSTP) when stop complete 
-	while(ADC_CR(ADC) & ADC_CR_ADSTART);
-	//current sense amp outputs go into 100R shunt 10nF filter
-	//before entering ADC. We can calculate LSB/4 sampling time as
-	//Tsample,min = (Rin(100)+Rsw(1k))*(Cadc(8pF))*ln(2**(12bit+2))
-	// = 0.085us, 1.02 cycles at 12MHz adc clock
-	// use the lowest, 1.5-cycle sampling time
-	// The sampling time required for the 10k NTC thermistors is an order of
-	// magnitude higher, but we can just average that
-	adc_set_sample_time_on_all_channels(ADC, ADC_SMPR_SMP_001DOT5);
-	//enable analog watchdog
-	adc_clear_watchdog_flag(ADC); //clear first. vbus,temp channels may have set AWD flag 
-	adc_enable_watchdog_interrupt(ADC);
-	//select current sensors + vbus as conversion channels
-	adc_set_regular_sequence(ADC, sizeof(IABC_CHANNEL), IABC_CHANNEL);  
-	//enable DMA
-	adc_enable_dma(ADC);
-	//re-enable ADC triggering
-	ADC_CR(ADC) |= ADC_CR_ADSTART;
 }
 
 void spi_setup() {
@@ -237,10 +184,13 @@ void spi_setup() {
 }
 
 void setup(void) {
-	nvic_setup(); //call first in case anything else uses interrupts or exceptions
 	clocks_setup(); //call before all periph reg accesses
+	nvic_setup(); //call first in case anything else uses interrupts or exceptions
 	spi_setup();
 	adc_setup();
 	pwm_timer_setup();
 	gpio_setup(); //call last so that peripheral outputs are steady when linked to GPIO pins
+	//start the PWM generation timer, which will trigger periodic interrupts
+	timer_enable_counter(TIM1);
+	timer_enable_break_main_output(TIM1);
 }

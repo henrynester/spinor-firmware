@@ -1,14 +1,9 @@
+#include "encoder.h"
 #include "pins.h"
 
 #include "libopencm3/stm32/gpio.h"
 #include "libopencm3/stm32/spi.h"
 
-#define ENCODER_ERR_OK 0
-#define ENCODER_ERR_SPIMASTER 1 //must =1 since parity errors return 1
-#define ENCODER_ERR_SPISLAVE 2
-#define ENCODER_ERR_DSP 3
-#define ENCODER_ERR_MAGL 4
-#define ENCODER_ERR_MAGH 5
 
 #define ENCODER_AGC_MIN 0x20
 #define ENCODER_AGC_MAX 0xD0
@@ -20,6 +15,7 @@
 #define ENCODER_CMD_PARITY (1<<15)
 #define ENCODER_CMD_R (1<<14)
 #define ENCODER_CMD W 0
+#define ENCODER_CMD_R_NOP ENCODER_CMD_PARITY | ENCODER_CMD_R | 0x0000
 #define ENCODER_CMD_R_ERRFL ENCODER_CMD_PARITY | ENCODER_CMD_R | 0x0000
 #define ENCODER_CMD_R_DIAAGC ENCODER_CMD_PARITY | ENCODER_CMD_R | 0x3FFC
 #define ENCODER_CMD_R_ANGLECOM ENCODER_CMD_PARITY | ENCODER_CMD_R | 0x3FFF
@@ -40,9 +36,17 @@
 
 #define PARITY16(x) x ^= x >> 8; x ^= x >> 4; x ^= x >> 2; x ^= x >> 1; x & 1
 
-uint8_t _encoder_transfer(uint16_t tx_data, uint16_t *rx_data);
+int16_t wrap_u14_signed(int16_t delta_angle) {
+	if(delta_angle > 0x2000) { //rollover while decreasing
+		return delta_angle - 0x4000;
+	}
+	if(delta_angle < -0x2000) { //rollover while increasing
+		return delta_angle + 0x4000;
+	}
+	return delta_angle;
+}
 
-uint8_t _encoder_transfer(uint16_t tx_data, uint16_t *rx_data) {
+static uint8_t _encoder_transfer(uint16_t tx_data, uint16_t *rx_data) {
 	//bring NCS low
 	gpio_clear(SPI_NCS_PORT, SPI_NCS_PIN);
 	//place 16 bits into SPI's TXFIFO. This will clock out.
@@ -67,26 +71,29 @@ uint8_t _encoder_transfer(uint16_t tx_data, uint16_t *rx_data) {
 }
 
 uint8_t encoder_read_angle(uint16_t *angle) {
-      uint8_t err = _encoder_transfer(ENCODER_CMD_R_ANGLECOM, angle);
-      *angle &= ENCODER_ANGLECOM_MASK;
-      return err;
+	uint16_t temp;
+	uint8_t err = _encoder_transfer(ENCODER_CMD_R_ANGLECOM, &temp);
+	err |= _encoder_transfer(ENCODER_CMD_R_NOP, angle);
+	*angle &= ENCODER_ANGLECOM_MASK;
+	return err;
 }
 
-uint8_t encoder_read_status() {
-	uint16_t regval;
-	uint8_t err = _encoder_transfer(ENCODER_CMD_R_ERRFL, &regval);
+uint8_t encoder_read_status(void) {
+	uint16_t errfl_contents, diaagc_contents, temp;
+	uint8_t err = _encoder_transfer(ENCODER_CMD_R_ERRFL, &temp);
+	err |= _encoder_transfer(ENCODER_CMD_R_DIAAGC, &errfl_contents);
+	err |= _encoder_transfer(ENCODER_CMD_R_NOP, &diaagc_contents);
 	if(err) return ENCODER_ERR_SPIMASTER;
-	if(regval & ENCODER_ERRFL_MASK) return ENCODER_ERR_SPISLAVE;
-	err = encoder_transfer(ENCODER_CMD_R_DIAAGC, &regval);
-	if(err) return ENCODER_ERR_SPIMASTER;
-	if((regval & ENCODER_DIAAGC_COF) || (~regval & ENCODER_DIAAGC_LF)) {
-	       return ENCODER_ERR_DSP;
+	if(errfl_contents & ENCODER_ERRFL_MASK) return ENCODER_ERR_SPISLAVE;
+	if((diaagc_contents & ENCODER_DIAAGC_COF) 
+	|| (~diaagc_contents & ENCODER_DIAAGC_LF)) {
+		return ENCODER_ERR_DSP;
 	}
-	regval &= ENCODER_DIAAGC_AGC;
-	if(regval < ENCODER_AGC_MIN) {
+	diaagc_contents &= ENCODER_DIAAGC_AGC;
+	if(diaagc_contents < ENCODER_AGC_MIN) {
 		return ENCODER_ERR_MAGL;
 	}
-	if(regval > ENCODER_AGC_MAX) {
+	if(diaagc_contents > ENCODER_AGC_MAX) {
 		return ENCODER_ERR_MAGH;
 	}
 	return ENCODER_ERR_OK;
