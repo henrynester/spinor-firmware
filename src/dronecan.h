@@ -15,10 +15,6 @@
 
 #define UNIQUE_ID_LENGTH_BYTES                                      16
 
-extern ISR_tx_t ISR_tx;
-extern ISR_rx_t ISR_rx;
-
-
 void dronecan_init(void);
 void dronecan_transmit(void);
 void dronecan_receive(void);

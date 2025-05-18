@@ -5,10 +5,11 @@ CFILES += src/dronecan.c
 CFILES += src/setup.c
 CFILES += src/isr.c
 CFILES += src/encoder.c
-CFILES += src/svm.c
-CFILES += src/trig.c
+CFILES += src/foc.c
+CFILES += src/math.c
+CFILES += src/adc.c
 CFILES += src/thermistor.c
-CFILES += src/parameters.c
+CFILES += src/ControllerStateMachine.c
 
 CFILES += lib/libcanard/canard.c lib/libcanard/drivers/stm32/canard_stm32.c
 SHARED_DIR += lib lib/libcanard 
@@ -25,6 +26,7 @@ OOCD_INTERFACE = stlink
 OOCD_TARGET = stm32f0x
 INCLUDES += $(patsubst %,-I%, . $(SHARED_DIR))
 OPENCM3_DIR = lib/libopencm3
+
 
 include $(OPENCM3_DIR)/mk/genlink-config.mk
 include rules.mk

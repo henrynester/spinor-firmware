@@ -11,13 +11,15 @@ bin/src/dronecan.o: src/dronecan.c src/dronecan.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.HardwareVersion.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.NodeStatus.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.SoftwareVersion.h \
- lib/libcanard/canard.h src/isr.h src/config.h \
+ lib/libcanard/canard.h src/isr.h src/foc.h src/adc.h src/encoder.h \
+ src/config.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.GetSet.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.GetSet_req.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.Value.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.Empty.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.GetSet_res.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.NumericValue.h \
+ src/math.h /usr/lib/gcc/arm-none-eabi/12.2.1/include/arm_fp16.h \
  src/thermistor.h lib/libopencm3/include/libopencm3/stm32/rcc.h \
  lib/libopencm3/include/libopencm3/cm3/common.h \
  lib/libopencm3/include/libopencm3/stm32/memorymap.h \

@@ -1,11 +1,12 @@
 #include "isr.h"
+#include "adc.h"
 #include "setup.h"
-#include "svm.h"
+#include "foc.h"
 #include "encoder.h"
 #include "pins.h"
 #include "constants.h"
-#include "trig.h"
-#include "config.h"
+#include "math.h"
+#include "ControllerStateMachine.h"
 
 #include "libopencm3/cm3/nvic.h"
 #include "libopencm3/cm3/systick.h"
@@ -13,195 +14,234 @@
 #include "libopencm3/stm32/dma.h"
 #include "libopencm3/stm32/adc.h"
 
+volatile uint32_t g_uptime_ms;
 void sys_tick_handler(void) {
 	g_uptime_ms++;
 }
 
+//data moving ISR->main
+volatile isr_out_t _isr_out; //ISR's copy
+//data moving main->ISR
+volatile isr_in_t _isr_in; //ISR's copy
+
 void dma1_channel1_isr(void) {
-	gpio_clear(LED_PORT, LED_B);
-	uint32_t t_exec_start = systick_get_value();
+	//BEGIN TIME CRITICAL. t=0 at ADC conversion start, t=1.2us at conversion end
+	volatile uint16_t x = TIM1_CNT;
+	volatile uint32_t t_exec_start = systick_get_value();
+	volatile uint16_t d1 = TIM1_CR1 & TIM_CR1_DIR_DOWN;
+	while(DMA1_CNDTR2 == 3);
+	volatile uint16_t y = TIM1_CNT;
+	volatile uint16_t d2 = TIM1_CR1 & TIM_CR1_DIR_DOWN;
+	volatile uint32_t tprime = systick_get_value();
+	//gpio_clear(LED_PORT, LED_B);
+	//gpio_set(LED_PORT, LED_B);
+	static adc_results_t adc_results;
+	static encoder_t encoder;
+	static foc_t foc;
 
-	//switch to the requested PWM source
-	//if overcurrent has tripped, we can only
-	//switch to the LOW state.
-	if(_ISR_tx.pwm_src != _ISR_rx.pwm_src) {
-		if(_ISR_tx.pwm_src != LOW_OC_TRIP) {
-			_ISR_tx.pwm_src = _ISR_rx.pwm_src;
-		} else {
-			if(_ISR_rx.pwm_src == LOW) {
-				_ISR_tx.pwm_src = LOW;
-			}
-		}
-	} 
-
-	//Some tasks take up lots of ISR time, so do them rarely
+	//first copy data from ADC buffer before next conversion causes DMA to overwrite
+	//the present data
+	adc_copy_results(&adc_results); //TIME CRITICAL: must complete before next ADC conversion start, t=1/24kHz=42us
+	
 	static uint16_t counter_slow = 0;
 	counter_slow++;
-	if(counter_slow > PWM_FREQ/4) {
-		counter_slow = 0;
+	if(counter_slow > CONTROL_FREQ/4) { counter_slow = 0; }
+	//TIME CRITICAL: must complete before next ADC conv start, t=42us	
+	//here we request thermistor conversions in place of vbus conversions
+	//at intervals tied to the slow counter
+	if(counter_slow==0*CONTROL_FREQ/12) {
+		//adc_set_measure_mode(ADC_MODE_IA_IB_IC_TFET);
 	}
-	//always read 3 current channels + bus voltage channel
-	_ISR_tx.ia = adc_buffer[0];
-	_ISR_tx.ib = adc_buffer[1];
-	_ISR_tx.ic = adc_buffer[2];
-
-	//swap out voltage channel for temp channels 
-	//also release sense line so current flows
-	//in thermistors while measuring
-	if(counter_slow==0*PWM_FREQ/12) {
-		ADC1_CHSELR = ADC_CHSELR_IABC_TMTR;
-		gpio_set(TEMP_PORT, TEMP_PIN);
-	} else if(counter_slow==1*PWM_FREQ/12) {
-		ADC1_CHSELR = ADC_CHSELR_IABC_TFET;
-		gpio_set(TEMP_PORT, TEMP_PIN);
-	}
-	//swap back to voltage channel at next loop	
-	//also record temperature conversion results
-	//After temperature conversion, tie thermistors'
-	//sense lines low to avoid steady overcurrent in thermistors
-	if(counter_slow==0*PWM_FREQ/12+1) {
-		_ISR_tx.T_mtr = ((_ISR_tx.T_mtr)*3 + adc_buffer[3]) / 4;
-		ADC1_CHSELR = ADC_CHSELR_IABC_VBUS;
-		gpio_clear(TEMP_PORT, TEMP_PIN);
-	} else if(counter_slow==1*PWM_FREQ/12+1) {
-		_ISR_tx.T_fet = ((_ISR_tx.T_fet)*3 + adc_buffer[3]) / 4;
-		ADC1_CHSELR = ADC_CHSELR_IABC_VBUS;
-		gpio_clear(TEMP_PORT, TEMP_PIN);
+	if(counter_slow==1*CONTROL_FREQ/12) {
+		//adc_set_measure_mode(ADC_MODE_IA_IB_IC_TMTR);
 	} else {
-		_ISR_tx.v_bus = ((_ISR_tx.v_bus)*15 + adc_buffer[3]) / 16;
-	}
-	//set up the ADC to do another conversion sequence	
-	ADC1_CR |= ADC_CR_ADSTP;
-	dma_disable_channel(DMA1, DMA_CHANNEL1);
-	dma_set_number_of_data(DMA1, DMA_CHANNEL1, ADC_BUFFER_SIZE);
-	dma_enable_channel(DMA1, DMA_CHANNEL1);
-	while(ADC1_CR & ADC_CR_ADSTART);
-	ADC1_CR |= ADC_CR_ADSTART;
-
-	//overcurrent is the only fault that needs to be handled
-	//in the 20kHz FOC loop. Other faults can be detected in the 1kHz 
-	//dynamics control loop.
-	if(OUTSIDE(_ISR_tx.ia, I_MIN, I_MAX) 
-		|| OUTSIDE(_ISR_tx.ib, I_MIN, I_MAX)
-		|| OUTSIDE(_ISR_tx.ic, I_MIN, I_MAX)) {
-		_ISR_tx.pwm_src = LOW_OC_TRIP;
+		//adc_set_measure_mode(ADC_MODE_IA_IB_IC_VBUS);
 	}
 
-	uint16_t theta_m_sensor;
-	//read electrical angle, noting if SPI errors occur
-	if(encoder_read_angle(&theta_m_sensor) && _ISR_tx.n_encoder_err < UINT16_MAX) {
-		_ISR_tx.n_encoder_err++;
+	encoder_pll_load_next(&encoder); //call before any foc or dynamics control laws...
+	//TIME CRITICAL: must complete before next PWM DMA request, t~1/24kHz*(75% mod depth)=31us 
+	foc_update(&foc, &adc_results, &encoder); 
+
+	//immediately report an error if timing deadline missed,
+	//plus tie all phases low
+	//check
+	// (1) that the FOC read->process->write to DMA buffer completed within
+	// 90% of a single PWM period.
+	// (2) [what is really important] that the circular PWM DMA hsan't
+	// looped back around to the first entry because we were too slow to
+	// go fill in new values. This checks that we still have 3 remaining values
+	// to transfer.
+	_isr_out.t_exec_foc = SYSTICK_TO_DELTA_US(t_exec_start, systick_get_value()); 
+	//use volatile to force register to actually be read at this point, not later
+	volatile uint8_t num_pwm_dmas_at_foc_end = DMA1_CNDTR2;
+	if(_isr_out.t_exec_foc > T_EXEC_FOC_MAX || num_pwm_dmas_at_foc_end < 3) {
+		_isr_out.error = ISR_ERROR_FOC_DEADLINE_MISSED;
+		timer_disable_break_main_output(TIM1);
 	}
-#define PLL_BANDWIDTH 1000.0
-#define DELTA_T (3.0/(float)PWM_FREQ)
-#define KP_PLL (2.0*PLL_BANDWIDTH)
-#define KP_PLL_TIMES_DT_SCALED (int32_t)((float)0x8000*(KP_PLL*DELTA_T))
-#define KI_PLL_TIMES_DT_SCALED (int32_t)((float)0x8000*(0.25*KP_PLL*KP_PLL*DELTA_T*DELTA_T))
-	_ISR_tx.theta_m = _ISR_tx.theta_m_next;
-	_ISR_tx.omega_m = _ISR_tx.omega_m_next;
-	_ISR_tx.theta_m_sensor = theta_m_sensor;
-	int16_t theta_m_err = wrap_u14_signed(theta_m_sensor - (uint16_t)(_ISR_tx.theta_m&0x3FFF));
-	_ISR_tx.theta_m_next = _ISR_tx.theta_m + _ISR_tx.omega_m / 0x100 
-		+ (KP_PLL_TIMES_DT_SCALED * (int32_t)theta_m_err) / 0x8000;
-	_ISR_tx.omega_m_next = _ISR_tx.omega_m
-		+ (KI_PLL_TIMES_DT_SCALED * (int32_t)theta_m_err) / 0x80;
+
+	//TIME CRITICAL: must occur close to next PWM DMA request 
+	//(within 1/2 1/24kHz period is OK) and with low jitter
+	//code expects angle was read at time of first PWM DMA request
+	encoder_read_angle(); 
+	//END TIME CRITICAL
+	//(still need to finish before next interrupt with some time for main-loop tasks, ofc)
+
+	//overcurrent check. runs in ISR due to high time sensitivity
+	if(OUTSIDE(adc_results.ia[0], SAFETY_IABC_MIN_INT, SAFETY_IABC_MAX_INT)
+	|| OUTSIDE(adc_results.ib[0], SAFETY_IABC_MIN_INT, SAFETY_IABC_MAX_INT)	
+	|| OUTSIDE(adc_results.ic[0], SAFETY_IABC_MIN_INT, SAFETY_IABC_MAX_INT)) {
+		_isr_out.error = ISR_ERROR_OVERCURRENT;
+		timer_disable_break_main_output(TIM1);
+	}
+
+	//collect inputs to this control loop
+	foc.control_mode = _isr_in.foc_control_mode;
+	if(foc.control_mode == FOC_CONTROL_MODE_VDQ 
+		|| foc.control_mode == FOC_CONTROL_MODE_VDQ_THETA_E) {
+		foc.vd_ref = _isr_in.vd_ref;
+		foc.vq_ref = _isr_in.vq_ref;
+		foc.theta_e_ref = _isr_in.theta_e_ref;
+	}
+	if(encoder.theta_e_offset != _isr_in.theta_e_offset) {
+		encoder.theta_e_offset = _isr_in.theta_e_offset;
+	}
+	if(encoder.theta_m_homing_offset != _isr_in.theta_m_homing_offset) {
+		encoder.theta_m_homing_offset = _isr_in.theta_m_homing_offset;
+	}
+
+	int32_t iq_ref = 0;
+	//averaging of velocity estimate yields a smoother result
+	//however, we do need high frequencies in omega_m for the PLL
+#define OMEGA_M_AVG_LEN 16 
+	static uint8_t omega_m_avgidx = 0;
+	static int32_t omega_m_avgarr[OMEGA_M_AVG_LEN];
+	static int32_t omega_m_avg = 0;
+	omega_m_avg -= omega_m_avgarr[omega_m_avgidx];
+	omega_m_avgarr[omega_m_avgidx] = encoder.omega_m;
+	omega_m_avg += omega_m_avgarr[omega_m_avgidx];
+	omega_m_avgidx++;
+	if(omega_m_avgidx >= OMEGA_M_AVG_LEN) {
+		omega_m_avgidx = 0;
+	}
+	//velocity control law
+	if(_isr_in.omega_m_ref != 0) {
+		static int32_t omega_m_err_integral = 0;
+		int32_t omega_m_err = (omega_m_avg) - _isr_in.omega_m_ref*OMEGA_M_AVG_LEN;
+		//reduce effective gain at higher commanded speeds
+		//to avoid oscillations
+		int32_t factor = 4*_isr_in.omega_m_ref;
+		if(factor > 0x7800) {
+			factor = 0x7800;
+		}
+		omega_m_err -= (omega_m_err * factor) / 0x8000;
+		int32_t omega_m_tau_ref = -FMUL(VEL_KP*OMEGA_M_LSB/TORQUE_IDQ_LSB, omega_m_err) - omega_m_err_integral;
+		uint8_t saturated = false;
+		if(omega_m_tau_ref <= TORQUE_MIN_INT) {
+			omega_m_tau_ref = TORQUE_MIN_INT;
+			saturated = true;
+		}
+		if(omega_m_tau_ref >= TORQUE_MAX_INT) {
+			omega_m_tau_ref = TORQUE_MAX_INT;
+			saturated = true;
+		}
+		if(saturated) {
+			omega_m_err_integral -= omega_m_err_integral / 64;
+		} else {
+			omega_m_err_integral += FMUL(VEL_KI*OMEGA_M_LSB/TORQUE_IDQ_LSB*CONTROL_DT, omega_m_err);
+		}
+		iq_ref = omega_m_tau_ref;
+	} 
+	//direct torque control
+	else if(_isr_in.iq_ref != 0) {
+		iq_ref = _isr_in.iq_ref;
+	} 
+	//stop
+	else {
+		iq_ref = 0;
+	}
+	//average torque setpoint
+#define IDQ_REF_AVG_LEN 16 
+	static uint8_t idq_ref_avgidx = 0;
+	static int32_t idq_ref_avgarr[IDQ_REF_AVG_LEN];
+	static int32_t idq_ref_avg = 0;
+	idq_ref_avg -= idq_ref_avgarr[idq_ref_avgidx];
+	idq_ref_avgarr[idq_ref_avgidx] = iq_ref;
+	idq_ref_avg += idq_ref_avgarr[idq_ref_avgidx];
+	idq_ref_avgidx++;
+	if(idq_ref_avgidx >= IDQ_REF_AVG_LEN) {
+		idq_ref_avgidx = 0;
+	}
+	iq_ref = idq_ref_avg/IDQ_REF_AVG_LEN;
+	//limit torque setpoint based on velocity
+	int32_t upper_limit = FMUL(
+		(1.0/TORQUE_LIMIT_SLOPE_FRACTION*TORQUE_LIMIT/VEL_LIMIT/TORQUE_IDQ_LSB*OMEGA_M_LSB), 
+		(VEL_LIMIT_INT - (omega_m_avg/OMEGA_M_AVG_LEN)));	
+	int32_t lower_limit = FMUL(
+		(1.0/TORQUE_LIMIT_SLOPE_FRACTION*TORQUE_LIMIT/VEL_LIMIT/TORQUE_IDQ_LSB*OMEGA_M_LSB), 
+		(-VEL_LIMIT_INT - (omega_m_avg/OMEGA_M_AVG_LEN)));
+	iq_ref = CONSTRAIN(iq_ref, lower_limit, upper_limit);
+	//torque limiting even at low velocities, too
+	iq_ref = CONSTRAIN(iq_ref, TORQUE_MIN_INT, TORQUE_MAX_INT);
+
+	foc.iq_ref = iq_ref;
+	foc.id_ref = 0;
 	
+	//outputs reported from this control loop
+	_isr_out.ia = adc_results.ia[0]; 
+	_isr_out.ib = adc_results.ib[0]; 
+	_isr_out.ic = adc_results.ic[0]; 
+	_isr_out.id = foc.id;
+	_isr_out.iq = foc.iq;
+	_isr_out.iq_ref_combined = foc.iq_ref;
+	_isr_out.va = pwm_a_buffer[0];
+	_isr_out.vb = pwm_b_buffer[0];
+	_isr_out.vc = pwm_c_buffer[0];
+	_isr_out.vd = foc.vd;
+	_isr_out.vq = foc.vq;
+	_isr_out.theta_m = encoder.theta_m_homed;
+	_isr_out.omega_m = encoder.omega_m;
+	_isr_out.theta_e = encoder.theta_e[3];
+	_isr_out.n_encoder_err = encoder.num_spi_errors;
+	_isr_out.encoder_err = encoder.status;
+	_isr_out.v_bus = adc_results.vbus;
+	_isr_out.T_mtr = adc_results.Tmtr;
+	_isr_out.T_fet = adc_results.Tfet;
+
 	//every so often, read status registers of encoder
-	if(counter_slow==2*PWM_FREQ/3) {
-		_ISR_tx.encoder_err = encoder_read_status();
+	if(counter_slow==2*CONTROL_FREQ/12) {
+		encoder_read_status(&encoder);
 	}
-
-	//convert to electrical angle
-	_ISR_tx.theta_e = ((((uint16_t)(_ISR_tx.theta_m&0x3FFF) * N_POLE_PAIRS) & 0x3FFF)-11618)&0x3FFF;
-	//save sin and cos for repeated use later
-	int32_t cos_theta_e = (int32_t)fcos(_ISR_tx.theta_e);
-	int32_t sin_theta_e = (int32_t)fsin(_ISR_tx.theta_e);
-
-	//Clarke-Park transform of measured current to dq frame
-	iabc_to_idq(cos_theta_e, sin_theta_e, 
-		_ISR_tx.ia, _ISR_tx.ib, _ISR_tx.ic,
-		&_ISR_tx.id, &_ISR_tx.iq);
-			
-	//Generate different PWM outputs based on selected PWM source
-#define IQ_REF_MAX 250
-#define OMEGA_M_MAX 5000
-#define SLOPE (int32_t)(2*(float)IQ_REF_MAX/(float)OMEGA_M_MAX*(float)0x100)
-	//torque-velocity domain restriction
-	int16_t iq_ref_upper = CONSTRAIN(((OMEGA_M_MAX-_ISR_tx.omega_m)*SLOPE)/0x100,
-			-IQ_REF_MAX, IQ_REF_MAX); 
-	int16_t iq_ref_lower = CONSTRAIN(((-OMEGA_M_MAX-_ISR_tx.omega_m)*SLOPE)/0x100,
-			-IQ_REF_MAX, IQ_REF_MAX);
-	int16_t iq_ref = CONSTRAIN(_ISR_rx.iq_cmd, iq_ref_lower, iq_ref_upper); 
-#define IQ_REF_AVG_LEN 16
-	static int32_t iq_ref_avg[IQ_REF_AVG_LEN];
-	static int32_t acc;
-	static uint16_t iq_ref_avg_idx;
-	acc-=iq_ref_avg[iq_ref_avg_idx];
-	acc+=iq_ref;
-	iq_ref_avg[iq_ref_avg_idx] = iq_ref;
-	iq_ref_avg_idx++;
-	if(iq_ref_avg_idx >= IQ_REF_AVG_LEN) {
-		iq_ref_avg_idx=0;
-	}
-	_ISR_tx.iq_ref_clamped = acc/IQ_REF_AVG_LEN; //(_ISR_tx.iq_ref_clamped*31 + iq_ref)/32;
-	
-	switch(_ISR_tx.pwm_src) {
-		case FOC:
-			//PI control on id, iq 
-			pi_control_idq(_ISR_tx.id, _ISR_tx.iq, _ISR_rx.id_cmd, _ISR_tx.iq_ref_clamped, 
-					&_ISR_tx.vd, &_ISR_tx.vq); 
-			if(config.vd_ref != 0) { _ISR_tx.vd = config.vd_ref; }
-			if(config.vq_ref != 0) { _ISR_tx.vq = config.vq_ref; } 
-			//Inverse Park-Clarke transform of dq voltage to phase voltages 
-			vdq_to_vabc(cos_theta_e, sin_theta_e, _ISR_tx.vd, _ISR_tx.vq,
-					&_ISR_tx.va, &_ISR_tx.vb, &_ISR_tx.vc);
-			break;
-		//apply direct-axis voltage specified in force_va at angle specified
-		//in force_theta_e. Used only for encoder offset calibration.
-		case FORCE_THETA_E:
-			cos_theta_e = (int32_t)fcos(_ISR_rx.theta_e_cmd);
-			sin_theta_e = (int32_t)fsin(_ISR_rx.theta_e_cmd); 
-			_ISR_tx.vd = _ISR_rx.va_cmd; _ISR_tx.vq = 0; 
-			vdq_to_vabc(cos_theta_e, sin_theta_e, _ISR_tx.vd, _ISR_tx.vq, 
-					&_ISR_tx.va, &_ISR_tx.vb, &_ISR_tx.vc); 
-			break; 
-		//apply phase voltages specified in force_va,b,c
-		case FORCE_V_ABC:
-			_ISR_tx.va=_ISR_rx.va_cmd; 
-			_ISR_tx.vb=_ISR_rx.vb_cmd;
-			_ISR_tx.vc=_ISR_rx.vc_cmd;
-			break;
-		//tie all phases low. Used for disarmed state
-		case LOW:
-		case LOW_OC_TRIP:
-			_ISR_tx.va=0;	
-			_ISR_tx.vb=0;	
-			_ISR_tx.vc=0;	
-			break;
-	}
-	if(_ISR_tx.pwm_src==LOW_OC_TRIP) {
-		gpio_clear(LED_PORT, LED_R);
-	}
-
-	//Write out PWM values to TIM1. They will be latched in when the TIM1 counter
-	//either over- or underflows
-	pwm_write(_ISR_tx.va, _ISR_tx.vb, _ISR_tx.vc);
+	//compute next PLL encoder angle estimate based on current estimate, measured
+	//angle. Also precompute sin, cos for next loop's electrical angles
+	encoder_pll_compute_next(&encoder);	
 	
 	//Keep track of execution time of this ISR
-	uint32_t t_exec_end = systick_get_value();
-	//uint32_t t_exec_end = systick_get_value();	
-	//Handle overflow. systick counts downward
-	if(t_exec_end < t_exec_start) {
-		_ISR_tx.t_exec = t_exec_start - t_exec_end;
-	} else {
-		_ISR_tx.t_exec = (t_exec_start + SYSTICK_RELOAD) - t_exec_end;
+	uint16_t t_exec_end = systick_get_value();
+	_isr_out.t_exec_foc_vel_pos = SYSTICK_TO_DELTA_US(t_exec_start, t_exec_end);
+	if(_isr_out.t_exec_foc_vel_pos > T_EXEC_FOC_POS_VEL_MAX) {
+		_isr_out.error = ISR_ERROR_POS_VEL_DEADLINE_MISSED;
+		timer_disable_break_main_output(TIM1);
 	}
-	//note the longest FOC ISR execution time
-	if(_ISR_tx.t_exec > _ISR_tx.t_exec_max) {
-		_ISR_tx.t_exec_max = _ISR_tx.t_exec;
+	//clear errors and re-enable FETs once the FOC is in stopped mode
+	if(foc.control_mode == FOC_CONTROL_MODE_STOP) {
+		//_isr_out.error = ISR_ERROR_OK;
+		//timer_enable_break_main_output(TIM1);
 	}
+
 	gpio_set(LED_PORT, LED_B);
 	//clear interrupt flag at end of routine - avoids retriggering
 	//before the ISR completes execution
 	dma_clear_interrupt_flags(DMA1, DMA_CHANNEL1, DMA_TCIF);
+}
+
+void sync_isr_in(isr_in_t *isr_in) {
+	nvic_disable_irq(NVIC_TIM1_CC_IRQ);
+	_isr_in = *isr_in;
+	nvic_enable_irq(NVIC_TIM1_CC_IRQ);
+}
+
+void sync_isr_out(isr_out_t *isr_out) {
+	nvic_disable_irq(NVIC_TIM1_CC_IRQ);
+	*isr_out = _isr_out;
+	nvic_enable_irq(NVIC_TIM1_CC_IRQ);
 }

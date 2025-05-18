@@ -1,4 +1,4 @@
-#include "trig.h"
+#include "math.h"
 
 #define N_SIN_LUT 64 
 #define SIN_LUT {\

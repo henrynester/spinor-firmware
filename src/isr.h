@@ -1,24 +1,26 @@
 #pragma once
 
-#include <stdint.h>
+#include "foc.h"
 
 typedef enum {
-	FOC,
-	FORCE_THETA_E,
-	FORCE_V_ABC,
-	LOW,
-	LOW_OC_TRIP
-} ISR_pwm_src_t; 
+	ISR_ERROR_OK,
+	ISR_ERROR_FOC_DEADLINE_MISSED,
+	ISR_ERROR_POS_VEL_DEADLINE_MISSED,
+	ISR_ERROR_OVERCURRENT
+} isr_error_t;
 
 typedef struct {
-	ISR_pwm_src_t pwm_src;	
-	int16_t id_cmd;
-	int16_t iq_cmd;
-	uint16_t theta_e_cmd;
-	int16_t va_cmd;
-	int16_t vb_cmd;
-	int16_t vc_cmd;
-} ISR_rx_t;
+	foc_control_mode_t foc_control_mode;
+	int16_t id_ref;
+	int16_t iq_ref;
+	int16_t omega_m_ref;
+	int32_t theta_m_ref;
+	int16_t vd_ref;
+	int16_t vq_ref;
+	uint16_t theta_e_ref;
+	int16_t theta_e_offset;
+	int32_t theta_m_homing_offset;
+} isr_in_t;
 
 typedef struct {
 	uint16_t ia;
@@ -27,7 +29,7 @@ typedef struct {
 	
 	int16_t id;
 	int16_t iq;
-	int32_t iq_ref_clamped;
+	int16_t iq_ref_combined;
 
 	uint16_t va;
 	uint16_t vb;
@@ -36,12 +38,10 @@ typedef struct {
 	int16_t vd;
 	int16_t vq;
 
-	int32_t theta_m_next;
-	int32_t omega_m_next;
 	int32_t theta_m;
 	int32_t omega_m;
-	uint16_t theta_m_sensor;
 	uint16_t theta_e;
+
 	uint16_t n_encoder_err;
 	uint8_t encoder_err;
 
@@ -49,12 +49,13 @@ typedef struct {
 	uint16_t T_mtr;
 	uint16_t T_fet;
 
-	uint32_t t_exec;
-	uint32_t t_exec_max;
+	uint16_t t_exec_foc;
+	uint16_t t_exec_foc_vel_pos;
 
-	ISR_pwm_src_t pwm_src;
-} ISR_tx_t; 
+	isr_error_t error;
+} isr_out_t; 
+
+void sync_isr_out(isr_out_t *isr_out);
+void sync_isr_in(isr_in_t *isr_in);
 
 extern volatile uint32_t g_uptime_ms;
-extern volatile ISR_tx_t _ISR_tx;
-extern volatile ISR_rx_t _ISR_rx; //does not need to be volatile since interrupt will not touch it

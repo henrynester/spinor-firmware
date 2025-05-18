@@ -1,5 +1,7 @@
 #include "setup.h"
 #include "pins.h"
+#include "foc.h"
+#include "adc.h"
 
 #include "libopencm3/stm32/rcc.h" 
 #include "libopencm3/stm32/gpio.h"
@@ -74,8 +76,9 @@ void clocks_setup() {
 	rcc_periph_clock_enable(RCC_SPI1);
 	
 	//setup SysTick 1ms interrupt for timekeeping
-	systick_set_frequency(1000, rcc_ahb_frequency);
+	systick_set_reload(SYSTICK_RELOAD);
 	systick_clear();
+	systick_set_clocksource(STK_CSR_CLKSOURCE_AHB);
 	systick_interrupt_enable();
 	systick_counter_enable();
 }
@@ -98,23 +101,26 @@ void adc_setup() {
 	// use the lowest, 1.5-cycle sampling time
 	// The sampling time required for the 10k NTC thermistors is an order of
 	// magnitude higher, but we can just average that
-	adc_set_sample_time_on_all_channels(ADC, ADC_SMPR_SMP_007DOT5);
+	adc_set_sample_time_on_all_channels(ADC, ADC_SMPR_SMP_001DOT5);
 	//select pins for conversion channels
 	//hardware forces sequence to be ordered by channel number,
-	ADC1_CHSELR = ADC_CHSELR_IABC_VBUS;
+	ADC1_CHSELR = ADC_CHSELR_IA_IB_IC_VBUS;
+	//when triggered, convert all channels in sequence, then stop
+	adc_set_operation_mode(ADC, ADC_MODE_SCAN); 
 	//set ADC to trigger from TIM1 OCREF4
-	adc_enable_discontinuous_mode(ADC);
 	adc_enable_external_trigger_regular(ADC, ADC_CFGR1_EXTSEL_TIM1_TRGO, ADC_CFGR1_EXTEN_RISING_EDGE);
 	//setup single-pass DMA from ADC into array
 	adc_enable_dma(ADC);
+	adc_enable_dma_circular_mode(ADC1);
+	dma_enable_circular_mode(DMA1, DMA_CHANNEL1);
 	dma_set_peripheral_address(DMA1, DMA_CHANNEL1, (uint32_t)(&ADC1_DR));
 	dma_set_peripheral_size(DMA1, DMA_CHANNEL1, DMA_CCR_PSIZE_16BIT);
 	dma_set_memory_address(DMA1, DMA_CHANNEL1, (uint32_t)adc_buffer);
 	dma_set_memory_size(DMA1, DMA_CHANNEL1, DMA_CCR_MSIZE_16BIT);
 	dma_enable_memory_increment_mode(DMA1, DMA_CHANNEL1);
-	dma_set_number_of_data(DMA1, DMA_CHANNEL1, ADC_BUFFER_SIZE);
-	dma_enable_channel(DMA1, DMA_CHANNEL1);
+	dma_set_number_of_data(DMA1, DMA_CHANNEL1, ADC_BUFFER_LEN);
 	dma_enable_transfer_complete_interrupt(DMA1, DMA_CHANNEL1);
+	dma_enable_channel(DMA1, DMA_CHANNEL1);
 
 	ADC1_CR |= ADC_CR_ADSTART;
 }
@@ -134,12 +140,19 @@ void pwm_timer_setup() {
 	timer_set_oc_mode(TIM1, TIM_OC3, TIM_OCM_PWM1);
 	//for PWM channels, only latch in the register value
 	//at an "update event" (counter hits min or max)
-	timer_enable_oc_preload(TIM1, TIM_OC1);
-	timer_enable_oc_preload(TIM1, TIM_OC2);
-	timer_enable_oc_preload(TIM1, TIM_OC3);
+	//timer_enable_oc_preload(TIM1, TIM_OC1);
+	//timer_enable_oc_preload(TIM1, TIM_OC2);
+	//timer_enable_oc_preload(TIM1, TIM_OC3);
+	//repetition counter=1 means a UEV occurs every other
+	//counter corner. we want this to be at peaks when phases are LOW
+	timer_set_repetition_counter(TIM1, 1);
 
 	//\/ allows forcing outputs to nonzero state when MOE cleared
-	//timer_set_enabled_off_state_in_idle_mode(TIM1);
+	timer_set_enabled_off_state_in_idle_mode(TIM1);
+	//force low-side FETs on as braking when MOE cleared
+	timer_set_output_idle_state(TIM1, TIM_OC1N);
+	timer_set_output_idle_state(TIM1, TIM_OC2N);
+	timer_set_output_idle_state(TIM1, TIM_OC3N);
 	//enable all 6 outputs of timer
 	timer_enable_oc_output(TIM1, TIM_OC1);
 	timer_enable_oc_output(TIM1, TIM_OC1N);
@@ -167,6 +180,41 @@ void pwm_timer_setup() {
 	timer_set_master_mode(TIM1, TIM_CR2_MMS_COMPARE_OC4REF);
 	//enable interrupt when counter passes TIM_OC4 level moving upward
 	//timer_enable_irq(TIM1, TIM_SR_CC4IF);
+	
+	//set up circular DMA to deliver PWM values to the timer output compare registers
+	//at each UEV (configured here to be the peak of the count, when all phases are LOW)
+	timer_set_dma_on_update_event(TIM1);
+	timer_enable_irq(TIM1, TIM_DIER_CC1DE | TIM_DIER_CC2DE | TIM_DIER_CC3DE);
+	//phase A PWM DMA
+	dma_enable_circular_mode(DMA1, DMA_CHANNEL2);
+	dma_set_read_from_memory(DMA1, DMA_CHANNEL2);
+	dma_set_peripheral_address(DMA1, DMA_CHANNEL2, (uint32_t)(&TIM1_CCR1));
+	dma_set_peripheral_size(DMA1, DMA_CHANNEL2, DMA_CCR_PSIZE_16BIT);
+	dma_set_memory_address(DMA1, DMA_CHANNEL2, (uint32_t)pwm_a_buffer);
+	dma_set_memory_size(DMA1, DMA_CHANNEL2, DMA_CCR_MSIZE_16BIT);
+	dma_enable_memory_increment_mode(DMA1, DMA_CHANNEL2);
+	dma_set_number_of_data(DMA1, DMA_CHANNEL2, sizeof(pwm_a_buffer)/sizeof(pwm_a_buffer[0]));
+	dma_enable_channel(DMA1, DMA_CHANNEL2);
+	//phase B PWM DMA
+	dma_enable_circular_mode(DMA1, DMA_CHANNEL3);
+	dma_set_read_from_memory(DMA1, DMA_CHANNEL3);
+	dma_set_peripheral_address(DMA1, DMA_CHANNEL3, (uint32_t)(&TIM1_CCR2));
+	dma_set_peripheral_size(DMA1, DMA_CHANNEL3, DMA_CCR_PSIZE_16BIT);
+	dma_set_memory_address(DMA1, DMA_CHANNEL3, (uint32_t)pwm_b_buffer);
+	dma_set_memory_size(DMA1, DMA_CHANNEL3, DMA_CCR_MSIZE_16BIT);
+	dma_enable_memory_increment_mode(DMA1, DMA_CHANNEL3);
+	dma_set_number_of_data(DMA1, DMA_CHANNEL3, sizeof(pwm_b_buffer)/sizeof(pwm_b_buffer[0]));
+	dma_enable_channel(DMA1, DMA_CHANNEL3);
+	//phase C PWM DMA
+	dma_enable_circular_mode(DMA1, DMA_CHANNEL5);
+	dma_set_read_from_memory(DMA1, DMA_CHANNEL5);
+	dma_set_peripheral_address(DMA1, DMA_CHANNEL5, (uint32_t)(&TIM1_CCR3));
+	dma_set_peripheral_size(DMA1, DMA_CHANNEL5, DMA_CCR_PSIZE_16BIT);
+	dma_set_memory_address(DMA1, DMA_CHANNEL5, (uint32_t)pwm_c_buffer);
+	dma_set_memory_size(DMA1, DMA_CHANNEL5, DMA_CCR_MSIZE_16BIT);
+	dma_enable_memory_increment_mode(DMA1, DMA_CHANNEL5);
+	dma_set_number_of_data(DMA1, DMA_CHANNEL5, sizeof(pwm_c_buffer)/sizeof(pwm_c_buffer[0]));
+	dma_enable_channel(DMA1, DMA_CHANNEL5);
 
 	//set the timer running. However, outputs are not enabled yet because MOE bit is cleared 
 	//call timer_enable_break_main_output() to set it
@@ -191,6 +239,6 @@ void setup(void) {
 	pwm_timer_setup();
 	gpio_setup(); //call last so that peripheral outputs are steady when linked to GPIO pins
 	//start the PWM generation timer, which will trigger periodic interrupts
-	timer_enable_counter(TIM1);
 	timer_enable_break_main_output(TIM1);
+	timer_enable_counter(TIM1);
 }

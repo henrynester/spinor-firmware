@@ -27,7 +27,6 @@ static struct uavcan_protocol_debug_KeyValue key_value_msg;
 //////////////////////////////////////////////////////////////////////////////////////
 
 void dronecan_handle_param_GetSet(CanardInstance* ins, CanardRxTransfer* transfer);
-void dronecan_params_default(void);
 
 bool shouldAcceptTransfer(const CanardInstance* ins,
                           uint64_t* out_data_type_signature,
@@ -71,7 +70,6 @@ void dronecan_init(void)
              shouldAcceptTransfer,              // Callback, see CanardShouldAcceptTransfer
              NULL);
  
-  dronecan_params_default();
   canardSetLocalNodeID(&g_canard, (uint8_t)0x42);
 }
 
@@ -154,6 +152,17 @@ void dronecan_publish_debug_KeyValue(char* key, float value, uint8_t* transfer_i
 			len);
 }
 
+parameter_t parameters[] = {
+	{"vd_ref", &parameter_storage.vd_ref}, 
+	{"vq_ref", &parameter_storage.vq_ref}, 
+	{"id_ref", &parameter_storage.id_ref}, 
+	{"iq_ref", &parameter_storage.iq_ref},
+	{"omega_m_ref", &parameter_storage.omega_m_ref},
+	{"theta_m_ref", &parameter_storage.theta_m_ref} 
+};
+
+parameter_storage_t parameter_storage;
+
 void dronecan_handle_param_GetSet(CanardInstance* ins, CanardRxTransfer* transfer)
 {
     struct uavcan_protocol_param_GetSetRequest req;
@@ -173,26 +182,13 @@ void dronecan_handle_param_GetSet(CanardInstance* ins, CanardRxTransfer* transfe
     } else if (req.index < ARRAY_SIZE(parameters)) {
         p = &parameters[req.index];
     }
-    if (p != NULL && req.name.len != 0 && req.value.union_tag != UAVCAN_PROTOCOL_PARAM_VALUE_EMPTY) {
+    if (p != NULL && req.name.len != 0 && req.value.union_tag == UAVCAN_PROTOCOL_PARAM_VALUE_REAL_VALUE) {
         /*
           this is a parameter set command. The implementation can
           either choose to store the value in a persistent manner
           immediately or can instead store it in memory and save to permanent storage on a
          */
-        switch (p->type) {
-        case UAVCAN_PROTOCOL_PARAM_VALUE_INTEGER_VALUE:
-            *(p->value) = req.value.integer_value;
-            break;
-        case UAVCAN_PROTOCOL_PARAM_VALUE_REAL_VALUE:
             *(p->value) = req.value.real_value;
-            break;
-        default:
-            return;
-        }
-	//some parameters need to be applied
-	//if(strcmp((const char*)p->name, "node_id") == 0) {
-		//canardSetLocalNodeID(ins, (uint8_t)config.node_id);
-	//}
     }
 
     /*
@@ -200,33 +196,18 @@ void dronecan_handle_param_GetSet(CanardInstance* ins, CanardRxTransfer* transfe
      */
     struct uavcan_protocol_param_GetSetResponse pkt;
     memset(&pkt, 0, sizeof(pkt));
-
-    if (p != NULL) {
-        switch (p->type) {
-        case UAVCAN_PROTOCOL_PARAM_VALUE_INTEGER_VALUE:
-            pkt.value.integer_value = *p->value;
-	    pkt.default_value.integer_value = p->default_value;
-	    pkt.min_value.integer_value = p->min_value;
-	    pkt.max_value.integer_value = p->max_value;
-            break;
-        case UAVCAN_PROTOCOL_PARAM_VALUE_REAL_VALUE:
+    	if (p != NULL) {
             pkt.value.real_value = *p->value;
-	    pkt.default_value.real_value = p->default_value;
-	    pkt.min_value.real_value = p->min_value;
-	    pkt.max_value.real_value = p->max_value;
-            break;
-	default:
-	    return;
-        }
+	    pkt.value.union_tag = UAVCAN_PROTOCOL_PARAM_VALUE_REAL_VALUE;
+		pkt.name.len = strlen(p->name);
+		strcpy((char *)pkt.name.data, p->name);
+        } else {
+		pkt.value.union_tag = UAVCAN_PROTOCOL_PARAM_VALUE_EMPTY;
+	}
+	pkt.default_value.union_tag = UAVCAN_PROTOCOL_PARAM_VALUE_EMPTY;
+	pkt.min_value.union_tag = UAVCAN_PROTOCOL_PARAM_NUMERICVALUE_EMPTY;
+	pkt.max_value.union_tag = UAVCAN_PROTOCOL_PARAM_NUMERICVALUE_EMPTY;
 
-        pkt.value.union_tag = p->type;
-        pkt.default_value.union_tag = p->type;
-        pkt.min_value.union_tag = (enum uavcan_protocol_param_NumericValue_type_t)p->type;
-        pkt.max_value.union_tag = (enum uavcan_protocol_param_NumericValue_type_t)p->type;
-
-        pkt.name.len = strlen(p->name);
-        strcpy((char *)pkt.name.data, p->name);
-    }
 
     uint8_t buffer[UAVCAN_PROTOCOL_PARAM_GETSET_RESPONSE_MAX_SIZE];
     uint16_t total_size = uavcan_protocol_param_GetSetResponse_encode(&pkt, buffer);
@@ -240,10 +221,4 @@ void dronecan_handle_param_GetSet(CanardInstance* ins, CanardRxTransfer* transfe
                            CanardResponse,
                            &buffer[0],
                            total_size);
-}
-
-void dronecan_params_default(void) {
-	for(uint16_t i = 0; i < ARRAY_SIZE(parameters); i++) {
-		*parameters[i].value = parameters[i].default_value;
-	}
 }

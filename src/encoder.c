@@ -1,5 +1,9 @@
 #include "encoder.h"
+#include "foc.h"
+#include "config.h"
+#include "constants.h"
 #include "pins.h"
+#include "isr.h"
 
 #include "libopencm3/stm32/gpio.h"
 #include "libopencm3/stm32/spi.h"
@@ -36,16 +40,36 @@
 
 #define PARITY16(x) x ^= x >> 8; x ^= x >> 4; x ^= x >> 2; x ^= x >> 1; x & 1
 
-int16_t wrap_u14_signed(int16_t delta_angle) {
-	if(delta_angle > 0x2000) { //rollover while decreasing
-		return delta_angle - 0x4000;
+int32_t _theta_m_next;
+int32_t _omega_m_next;
+uint16_t _theta_m_sensor;
+uint16_t _theta_m_modular;
+uint16_t _status;
+uint16_t _num_spi_errors;
+
+int16_t _delta_u14(uint16_t initial, uint16_t final) {
+	int16_t delta = (int16_t)final - (int16_t)initial;
+	if(delta > 0x2000) {
+		//rollover while decreasing: 0x3FFF-0x0000=0x3FFF, or nearer 0
+		return delta - 0x4000;
 	}
-	if(delta_angle < -0x2000) { //rollover while increasing
-		return delta_angle + 0x4000;
+	if(delta < -0x2000) {
+		//rollover while increasing: 0-0x3FFF=-0x3FFF, or nearer 0
+		return delta + 0x4000;
 	}
-	return delta_angle;
+	return delta;
 }
 
+static uint8_t _is_odd_parity(uint16_t x) {
+	x ^= x>>8;
+	x ^= x>>4;
+	x ^= x>>2;
+	x ^= x>>1;
+	return x & 1;
+}
+
+//transmit 16 bits while receiving 16 bits simultaneously.
+//nCS pulses low for duration of transaction
 static uint8_t _encoder_transfer(uint16_t tx_data, uint16_t *rx_data) {
 	//bring NCS low
 	gpio_clear(SPI_NCS_PORT, SPI_NCS_PIN);
@@ -61,40 +85,101 @@ static uint8_t _encoder_transfer(uint16_t tx_data, uint16_t *rx_data) {
 	//SPI's RXFIFO should contain 16 bits from the AS5047D now.
 	*rx_data = SPI_DR(SPI1);
 
-	uint16_t rx_data_copy = *rx_data;
+	if(*rx_data & ENCODER_RESPONSE_EF) {
+		_status = ENCODER_ERROR_ERROR_FLAG_AT_MASTER;
+		_num_spi_errors++;
+		return false;
+	}
+	if(_is_odd_parity(*rx_data)) {
+		_status = ENCODER_ERROR_BAD_PARITY_AT_MASTER;
+		_num_spi_errors++;
+		return false;
+	}
+	return true;
+}
 
-	if(!(rx_data_copy & ENCODER_RESPONSE_EF)) {
-		return PARITY16(rx_data_copy);
-	} else {
-		return ENCODER_ERR_SPISLAVE;
+//AS5047D register read requires two transactions 
+//in the format (even parity) (r=1, w=0) (14 bit register address)
+// #1: tx address of register to read. rx is discarded.
+// pulse nCS high to latch register contents into SPI slave circuit
+// #2: any address, I usually use NOP. rx contains register contents 
+
+void encoder_read_angle(void) {
+	uint16_t _;
+	_encoder_transfer(ENCODER_CMD_R_ANGLECOM, &_);
+	_encoder_transfer(ENCODER_CMD_R_NOP, &_theta_m_sensor);
+	//keep lower 14 bits containing angle value
+	_theta_m_sensor &= ENCODER_ANGLECOM_MASK;
+}
+
+void encoder_read_status(encoder_t *encoder) {
+	//report errors accumulated during angle reads
+	encoder->num_spi_errors = _num_spi_errors;
+	if(_status!=ENCODER_ERROR_OK) {
+		encoder->status=_status;
+		return;
+	}
+	//if there aren't any, check onboard status regs
+	uint16_t errfl_contents, diaagc_contents, _;
+	_encoder_transfer(ENCODER_CMD_R_ERRFL, &_);
+	_encoder_transfer(ENCODER_CMD_R_DIAAGC, &errfl_contents);
+	_encoder_transfer(ENCODER_CMD_R_NOP, &diaagc_contents);
+	uint8_t agc = diaagc_contents & ENCODER_DIAAGC_AGC; 
+	if(errfl_contents & ENCODER_ERRFL_FRERR) {
+		encoder->status = ENCODER_ERROR_BAD_FRAMING_AT_SLAVE;
+	} else if(errfl_contents & ENCODER_ERRFL_PARERR) {
+		encoder->status = ENCODER_ERROR_BAD_PARITY_AT_SLAVE;
+	} else if(errfl_contents & ENCODER_ERROR_INVALID_COMMAND_AT_SLAVE) {
+		encoder->status = ENCODER_ERROR_BAD_PARITY_AT_SLAVE;
+	} else if((diaagc_contents & ENCODER_DIAAGC_COF) 
+		|| (~diaagc_contents & ENCODER_DIAAGC_LF)) {
+		encoder->status = ENCODER_ERROR_ONBOARD_DSP;
+	} else if(agc < ENCODER_AGC_MIN) {
+		encoder->status = ENCODER_ERROR_BFIELD_OVER;
+	} else if(agc > ENCODER_AGC_MAX) {
+		encoder->status = ENCODER_ERROR_BFIELD_UNDER;
 	}
 }
 
-uint8_t encoder_read_angle(uint16_t *angle) {
-	uint16_t temp;
-	uint8_t err = _encoder_transfer(ENCODER_CMD_R_ANGLECOM, &temp);
-	err |= _encoder_transfer(ENCODER_CMD_R_NOP, angle);
-	*angle &= ENCODER_ANGLECOM_MASK;
-	return err;
+void encoder_clear_error(encoder_t *encoder) {
+	encoder->status = ENCODER_ERROR_OK;
+	encoder->num_spi_errors = 0;
 }
 
-uint8_t encoder_read_status(void) {
-	uint16_t errfl_contents, diaagc_contents, temp;
-	uint8_t err = _encoder_transfer(ENCODER_CMD_R_ERRFL, &temp);
-	err |= _encoder_transfer(ENCODER_CMD_R_DIAAGC, &errfl_contents);
-	err |= _encoder_transfer(ENCODER_CMD_R_NOP, &diaagc_contents);
-	if(err) return ENCODER_ERR_SPIMASTER;
-	if(errfl_contents & ENCODER_ERRFL_MASK) return ENCODER_ERR_SPISLAVE;
-	if((diaagc_contents & ENCODER_DIAAGC_COF) 
-	|| (~diaagc_contents & ENCODER_DIAAGC_LF)) {
-		return ENCODER_ERR_DSP;
+void encoder_pll_load_next(encoder_t *encoder) {
+	encoder->theta_m = _theta_m_next;
+	encoder->theta_m_homed = _theta_m_next - encoder->theta_m_homing_offset;
+	encoder->omega_m = _omega_m_next;
+}
+
+void encoder_pll_compute_next(encoder_t *encoder) {
+	encoder->theta_m_sensor = _theta_m_sensor;
+	//PLL tracks encoder sensor readings. Call after reading SPI encoder
+	int32_t pll_error = _delta_u14((encoder->theta_m&0x3FFF), _theta_m_sensor);
+	_theta_m_next = encoder->theta_m + encoder->omega_m / 0x100 +
+	       FMUL(PLL_KP*CONTROL_DT, pll_error);	
+	//integration is done at factor 0x100 larger so that small integrand 
+	//does not vanish
+	_omega_m_next = encoder->omega_m + 
+		FMUL(PLL_KI*THETA_M_LSB*CONTROL_DT/OMEGA_M_LSB, pll_error);
+	
+	//calculate cos, sin of theta_e at -3, -2, -1, 0, and +2 PWM periods
+	//away from the (next) control loop time. sin, cos are somewhat costly even
+	//using the lookup table, so we are cacheing the results for the next FOC iteration
+	//after the current FOC iteration completes
+	//This doesn't introduce any lag because the PLL position estimate is
+	//always for the upcoming control loop anyway
+	uint16_t theta_e = ((_theta_m_next & 0x3FFF) * NUM_POLE_PAIRS) & 0x3FFF;
+	theta_e -= encoder->theta_e_offset;
+	theta_e &= 0x3FFF;
+	int16_t theta_e_increment = ((encoder->omega_m * NUM_POLE_PAIRS) / (0x100));
+	theta_e -= 3*theta_e_increment;
+	theta_e &= 0x3FFF;
+	for(uint8_t i = 0; i < 6; i++) {
+		encoder->theta_e[i] = theta_e; 
+		encoder->cos_theta_e[i] = fcos(theta_e); 
+		encoder->sin_theta_e[i] = fsin(theta_e);
+		theta_e += theta_e_increment;
+		theta_e &= 0x3FFF;
 	}
-	diaagc_contents &= ENCODER_DIAAGC_AGC;
-	if(diaagc_contents < ENCODER_AGC_MIN) {
-		return ENCODER_ERR_MAGL;
-	}
-	if(diaagc_contents > ENCODER_AGC_MAX) {
-		return ENCODER_ERR_MAGH;
-	}
-	return ENCODER_ERR_OK;
 }

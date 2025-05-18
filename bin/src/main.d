@@ -11,13 +11,15 @@ bin/src/main.o: src/main.c src/dronecan.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.HardwareVersion.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.NodeStatus.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.SoftwareVersion.h \
- lib/libcanard/canard.h src/isr.h src/svm.h src/constants.h src/config.h \
+ lib/libcanard/canard.h src/isr.h src/foc.h src/adc.h src/encoder.h \
+ src/constants.h src/config.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.GetSet.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.GetSet_req.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.Value.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.Empty.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.GetSet_res.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.NumericValue.h \
+ src/math.h /usr/lib/gcc/arm-none-eabi/12.2.1/include/arm_fp16.h \
  src/pins.h lib/libopencm3/include/libopencm3/stm32/gpio.h \
  lib/libopencm3/include/libopencm3/cm3/common.h \
  lib/libopencm3/include/libopencm3/stm32/memorymap.h \
@@ -31,7 +33,8 @@ bin/src/main.o: src/main.c src/dronecan.h \
  lib/libopencm3/include/libopencm3/stm32/f0/adc.h \
  lib/libopencm3/include/libopencm3/stm32/common/adc_common_v2.h \
  lib/libopencm3/include/libopencm3/stm32/common/adc_common_v2_single.h \
- src/setup.h src/trig.h lib/dsdl/dsdl_generated/include/dronecan_msgs.h \
+ src/setup.h src/ControllerStateMachine.h \
+ lib/dsdl/dsdl_generated/include/dronecan_msgs.h \
  lib/dsdl/dsdl_generated/include/local.HelloWorld.h \
  lib/dsdl/dsdl_generated/include/uavcan.CoarseOrientation.h \
  lib/dsdl/dsdl_generated/include/uavcan.Timestamp.h \
