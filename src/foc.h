@@ -3,10 +3,6 @@
 #include "encoder.h"
 #include <stdint.h>
 
-extern volatile uint16_t pwm_a_buffer[3];
-extern volatile uint16_t pwm_b_buffer[3];
-extern volatile uint16_t pwm_c_buffer[3];
-
 typedef enum {
 	FOC_CONTROL_MODE_STOP,
 	FOC_CONTROL_MODE_IDQ,
@@ -24,6 +20,9 @@ typedef struct {
 	uint16_t theta_e_ref;
 	int16_t vd;
 	int16_t vq;
+	uint16_t pwm_a;
+	uint16_t pwm_b;
+	uint16_t pwm_c;
 	foc_control_mode_t control_mode;
 } foc_t;
 

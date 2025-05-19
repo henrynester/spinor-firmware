@@ -19,9 +19,9 @@ typedef struct {
 	int32_t theta_m;
 	int32_t theta_m_homed;
 	int32_t omega_m;
-	uint16_t theta_e[6];
-	int32_t cos_theta_e[6];
-	int32_t sin_theta_e[6];
+	uint16_t theta_e;
+	int32_t cos_theta_e;
+	int32_t sin_theta_e;
 	encoder_error_t status;
 	uint16_t num_spi_errors;
 	int32_t theta_m_homing_offset;

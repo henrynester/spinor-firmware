@@ -1,4 +1,5 @@
 #include "ControllerStateMachine.h"
+#include "constants.h"
 
 static void CSM_enter_CALIBRATE_ENCODER(CSM_t *self) {
 	self->isr_in->foc_control_mode=FOC_CONTROL_MODE_VDQ_THETA_E;
@@ -30,13 +31,14 @@ static void CSM_enter_MEASURE(CSM_t *self) {
 static void CSM_exit_CALIBRATE_ENCODER(CSM_t *self) {
 	self->isr_in->theta_e_offset = (int32_t)((float)self->offset_accumulate / (float)self->num_samples);
 	self->encoder_offset_valid = true;
+	//write offset to flash
 }
 static void CSM_enter_HOMING(CSM_t *self) {
 	self->homing_valid = false;
 	self->isr_in->foc_control_mode = FOC_CONTROL_MODE_IDQ;
-	self->isr_in->iq_ref = 0xFFFF;
-	self->isr_in->omega_m_ref = CAL_HOME_VEL;
-	self->isr_in->theta_m_ref = 0xFFFFFFFF;
+	self->isr_in->iq_ref = NONE;
+	self->isr_in->omega_m_ref = (int16_t)(CAL_HOME_VEL/OMEGA_M_LSB);
+	self->isr_in->theta_m_ref = NONE;
 }
 
 static void CSM_exit_HOMING(CSM_t *self) {
@@ -45,8 +47,7 @@ static void CSM_exit_HOMING(CSM_t *self) {
 }
 static void CSM_enter_ARMED(CSM_t *self) {
 	self->isr_in->foc_control_mode = FOC_CONTROL_MODE_IDQ;
-	self->isr_in->id_ref = 0;
-	self->isr_in->iq_ref = 0;
+	self->isr_in->iq_ref = NONE;
 }
 static void CSM_enter_DISARMED(CSM_t *self) {
 	self->isr_in->foc_control_mode = FOC_CONTROL_MODE_STOP;
@@ -83,8 +84,8 @@ void CSM_dispatch_event(CSM_t *self, ControllerEvent_t event) {
 							self->t_start = event.t;
 						} else {
 							CSM_exit_CALIBRATE_ENCODER(self);
-							CSM_enter_ARMED(self);
-							self->state = CONTROLLERSTATE_ARMED;
+							CSM_enter_HOMING(self);
+							self->state = CONTROLLERSTATE_HOMING;
 						}
 						break;
 					case CONTROLLERSUBSTATE_MOVE:
@@ -97,15 +98,16 @@ void CSM_dispatch_event(CSM_t *self, ControllerEvent_t event) {
 			} 
 			//stall-based homing sm
 			else if(self->state == CONTROLLERSTATE_HOMING) {
-				if(self->isr_out->iq < CAL_HOME_THRESHOLD_TORQUE) {
+				if(self->isr_out->iq < (int32_t)(CAL_HOME_THRESHOLD_TORQUE/TORQUE_IDQ_LSB)) {
 					self->t_start = event.t;
 				}
 				if(event.t > self->t_start+CAL_HOME_THRESHOLD_TIME) {
 					CSM_exit_HOMING(self);
-					self->state = CONTROLLERSTATE_DISARMED;
+					CSM_enter_ARMED(self);
+					self->state = CONTROLLERSTATE_ARMED;
 				}
 			} else if(self->state == CONTROLLERSTATE_ARMED) {
-			       if(event.t > self->t_start+60000) {
+			       if(event.t > self->t_start+300000) {
 				       CSM_enter_DISARMED(self);
 				       self->state = CONTROLLERSTATE_DISARMED;
 			       }

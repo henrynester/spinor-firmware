@@ -11,9 +11,6 @@
 
 int32_t _id_integral;
 int32_t _iq_integral;
-volatile uint16_t pwm_a_buffer[3];
-volatile uint16_t pwm_b_buffer[3];
-volatile uint16_t pwm_c_buffer[3];
 
 static void _park(int32_t cos_theta_e, int32_t sin_theta_e, uint16_t ia, uint16_t ib, uint16_t ic, 
 		int16_t *out_id, int16_t *out_iq) {
@@ -46,7 +43,7 @@ static void _park(int32_t cos_theta_e, int32_t sin_theta_e, uint16_t ia, uint16_
 
 static void _pi_control(int16_t i, int16_t i_ref, int32_t *integral, int16_t *out_v) {
 	int32_t err = i - i_ref;
-	int32_t v = FMUL(-FOC_KP/VDQ_LSB*IDQ_LSB, err) - *integral;
+	int32_t v = /*FMUL(-FOC_KP/VDQ_LSB*IDQ_LSB, err)*/ - *integral;
 	uint8_t saturated = false;
 	if(v <= -VDQ_MAX) {
 		v = -VDQ_MAX;
@@ -130,21 +127,36 @@ void foc_update(foc_t *foc, adc_results_t *adc_results, encoder_t *encoder) {
 	//using three differently retarded ;) electrical angles
 	gpio_set(LED_PORT, LED_B);
 	gpio_clear(LED_PORT, LED_B);
-	foc->id=0;
-	foc->iq=0;
-	for(uint8_t i = 0; i < 3; i++) {
-		int16_t id, iq;
-		_park(
-			encoder->cos_theta_e[i],
-			encoder->sin_theta_e[i],
-			adc_results->ia[i],
-			adc_results->ib[i],
-			adc_results->ic[i],
-			&id, &iq
-		);
-		foc->id+=id;
-		foc->iq+=iq;
+#define FOC_AVG_LEN 8
+	static int16_t id_avg_arr[FOC_AVG_LEN];
+	static int16_t iq_avg_arr[FOC_AVG_LEN];
+	static int32_t id_avg=0, iq_avg=0;
+	static uint16_t idq_avg_idx=0;
+
+	id_avg -= id_avg_arr[idq_avg_idx];
+	iq_avg -= iq_avg_arr[idq_avg_idx];
+	int16_t id, iq;
+	_park(
+		encoder->cos_theta_e,
+		encoder->sin_theta_e,
+		&adc_results->ia,
+		&adc_results->ib,
+		&adc_results->ic,
+		&id,
+		&iq
+	);
+	id_avg_arr[idq_avg_idx] = id;
+	iq_avg_arr[idq_avg_idx] = iq;
+
+	id_avg += id_avg_arr[idq_avg_idx];
+	iq_avg += iq_avg_arr[idq_avg_idx];
+	idq_avg_idx++;
+	if(idq_avg_idx >= FOC_AVG_LEN) {
+		idq_avg_idx = 0;
 	}
+	foc->id=id_avg/FOC_AVG_LEN;
+	foc->iq=iq_avg/FOC_AVG_LEN;
+
 	gpio_set(LED_PORT, LED_B);
 	gpio_clear(LED_PORT, LED_B);
 
@@ -164,50 +176,41 @@ void foc_update(foc_t *foc, adc_results_t *adc_results, encoder_t *encoder) {
 	//inverse Park transform at three differently advanced electric angles,
 	//composed with third harmonic injection/SVM
 	//we store this in arrays to get DMA'd to the PWM timer
-	if(foc->control_mode != FOC_CONTROL_MODE_VDQ_THETA_E) {
-		for(uint8_t i = 0; i < 3; i++) {
-		//use measured e-angle to commutate
-			_inverse_park_inject_harmonic_three(
-					encoder->cos_theta_e[i+3], 
-					encoder->sin_theta_e[i+3], 
-					foc->vd,
-					foc->vq,
-					&pwm_a_buffer[i],
-					&pwm_b_buffer[i],
-					&pwm_c_buffer[i]
-				);
-		}
-	} 
-	//use commanded electrical angle to commutate (calibration only) 
-	else {
-		uint16_t theta_e = foc->theta_e_ref & 0x3FFF;
-		int32_t cos_theta_e = fcos(theta_e);
-		int32_t sin_theta_e = fsin(theta_e);
+	if(foc->control_mode == FOC_CONTROL_MODE_VDQ_THETA_E) {
+		//use commanded electrical angle to commutate (calibration only) 
+		int32_t cos_theta_e = fcos(foc->theta_e_ref);
+		int32_t sin_theta_e = fsin(foc->theta_e_ref);
 		_inverse_park_inject_harmonic_three(
 				cos_theta_e, 
 				sin_theta_e, 
-				foc->vd_ref,
-				foc->vq_ref,
-				&pwm_a_buffer[0],
-				&pwm_b_buffer[0],
-				&pwm_c_buffer[0]
+				foc->vd,
+				foc->vq,
+				&foc->pwm_a,
+				&foc->pwm_b,
+				&foc->pwm_c
 			);
-		pwm_a_buffer[1] = pwm_a_buffer[0];
-		pwm_a_buffer[2] = pwm_a_buffer[0];
-		pwm_b_buffer[1] = pwm_b_buffer[0];
-		pwm_b_buffer[2] = pwm_b_buffer[0];
-		pwm_c_buffer[1] = pwm_c_buffer[0];
-		pwm_c_buffer[2] = pwm_c_buffer[0];
+	} else if(foc->control_mode == FOC_CONTROL_MODE_STOP) {
+		//force all outputs LOW
+		foc->pwm_a = 0;
+		foc->pwm_b = 0;
+		foc->pwm_c = 0;
 	}
+	else {
+		//use measured e-angle to commutate
+		_inverse_park_inject_harmonic_three(
+				encoder->cos_theta_e, 
+				encoder->sin_theta_e, 
+				foc->vd,
+				foc->vq,
+				&foc->pwm_a,
+				&foc->pwm_b,
+				&foc->pwm_c
+			);
+	}
+	TIM1_CCR1 = foc->pwm_a;
+	TIM1_CCR2 = foc->pwm_b;
+	TIM1_CCR3 = foc->pwm_c;
+
 	gpio_set(LED_PORT, LED_B);
 	gpio_clear(LED_PORT, LED_B);
-
-	//force all outputs to zero
-	if(foc->control_mode == FOC_CONTROL_MODE_STOP) {
-		for(uint8_t i = 0; i < 3; i++) {
-			pwm_a_buffer[i] = 0;
-			pwm_b_buffer[i] = 0;
-			pwm_c_buffer[i] = 0;
-		}
-	}
 }

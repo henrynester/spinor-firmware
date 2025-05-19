@@ -3,6 +3,13 @@
 #include "foc.h"
 
 typedef enum {
+	CONTROL_MODE_NONE,
+	CONTROL_MODE_TORQUE,
+	CONTROL_MODE_VEL,
+	CONTROL_MODE_POS
+} control_mode_t;
+
+typedef enum {
 	ISR_ERROR_OK,
 	ISR_ERROR_FOC_DEADLINE_MISSED,
 	ISR_ERROR_POS_VEL_DEADLINE_MISSED,
@@ -11,10 +18,11 @@ typedef enum {
 
 typedef struct {
 	foc_control_mode_t foc_control_mode;
+	control_mode_t control_mode;
 	int16_t id_ref;
 	int16_t iq_ref;
 	int16_t omega_m_ref;
-	int32_t theta_m_ref;
+	int16_t theta_m_ref;
 	int16_t vd_ref;
 	int16_t vq_ref;
 	uint16_t theta_e_ref;

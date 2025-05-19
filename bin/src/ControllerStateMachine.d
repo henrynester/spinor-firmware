@@ -15,4 +15,4 @@ bin/src/ControllerStateMachine.o: src/ControllerStateMachine.c \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.GetSet_res.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.NumericValue.h \
  src/math.h /usr/lib/gcc/arm-none-eabi/12.2.1/include/arm_fp16.h \
- src/isr.h src/foc.h src/adc.h src/encoder.h
+ src/isr.h src/foc.h src/adc.h src/encoder.h src/constants.h

@@ -180,44 +180,6 @@ void pwm_timer_setup() {
 	timer_set_master_mode(TIM1, TIM_CR2_MMS_COMPARE_OC4REF);
 	//enable interrupt when counter passes TIM_OC4 level moving upward
 	//timer_enable_irq(TIM1, TIM_SR_CC4IF);
-	
-	//set up circular DMA to deliver PWM values to the timer output compare registers
-	//at each UEV (configured here to be the peak of the count, when all phases are LOW)
-	timer_set_dma_on_update_event(TIM1);
-	timer_enable_irq(TIM1, TIM_DIER_CC1DE | TIM_DIER_CC2DE | TIM_DIER_CC3DE);
-	//phase A PWM DMA
-	dma_enable_circular_mode(DMA1, DMA_CHANNEL2);
-	dma_set_read_from_memory(DMA1, DMA_CHANNEL2);
-	dma_set_peripheral_address(DMA1, DMA_CHANNEL2, (uint32_t)(&TIM1_CCR1));
-	dma_set_peripheral_size(DMA1, DMA_CHANNEL2, DMA_CCR_PSIZE_16BIT);
-	dma_set_memory_address(DMA1, DMA_CHANNEL2, (uint32_t)pwm_a_buffer);
-	dma_set_memory_size(DMA1, DMA_CHANNEL2, DMA_CCR_MSIZE_16BIT);
-	dma_enable_memory_increment_mode(DMA1, DMA_CHANNEL2);
-	dma_set_number_of_data(DMA1, DMA_CHANNEL2, sizeof(pwm_a_buffer)/sizeof(pwm_a_buffer[0]));
-	dma_enable_channel(DMA1, DMA_CHANNEL2);
-	//phase B PWM DMA
-	dma_enable_circular_mode(DMA1, DMA_CHANNEL3);
-	dma_set_read_from_memory(DMA1, DMA_CHANNEL3);
-	dma_set_peripheral_address(DMA1, DMA_CHANNEL3, (uint32_t)(&TIM1_CCR2));
-	dma_set_peripheral_size(DMA1, DMA_CHANNEL3, DMA_CCR_PSIZE_16BIT);
-	dma_set_memory_address(DMA1, DMA_CHANNEL3, (uint32_t)pwm_b_buffer);
-	dma_set_memory_size(DMA1, DMA_CHANNEL3, DMA_CCR_MSIZE_16BIT);
-	dma_enable_memory_increment_mode(DMA1, DMA_CHANNEL3);
-	dma_set_number_of_data(DMA1, DMA_CHANNEL3, sizeof(pwm_b_buffer)/sizeof(pwm_b_buffer[0]));
-	dma_enable_channel(DMA1, DMA_CHANNEL3);
-	//phase C PWM DMA
-	dma_enable_circular_mode(DMA1, DMA_CHANNEL5);
-	dma_set_read_from_memory(DMA1, DMA_CHANNEL5);
-	dma_set_peripheral_address(DMA1, DMA_CHANNEL5, (uint32_t)(&TIM1_CCR3));
-	dma_set_peripheral_size(DMA1, DMA_CHANNEL5, DMA_CCR_PSIZE_16BIT);
-	dma_set_memory_address(DMA1, DMA_CHANNEL5, (uint32_t)pwm_c_buffer);
-	dma_set_memory_size(DMA1, DMA_CHANNEL5, DMA_CCR_MSIZE_16BIT);
-	dma_enable_memory_increment_mode(DMA1, DMA_CHANNEL5);
-	dma_set_number_of_data(DMA1, DMA_CHANNEL5, sizeof(pwm_c_buffer)/sizeof(pwm_c_buffer[0]));
-	dma_enable_channel(DMA1, DMA_CHANNEL5);
-
-	//set the timer running. However, outputs are not enabled yet because MOE bit is cleared 
-	//call timer_enable_break_main_output() to set it
 }
 
 void spi_setup() {

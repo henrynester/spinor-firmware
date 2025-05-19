@@ -2,6 +2,7 @@
 
 #include "config.h"
 #include "thermistor.h"
+#include "constants.h"
 
 #include "libopencm3/stm32/rcc.h"
 #include "libopencm3/stm32/gpio.h"
@@ -161,7 +162,11 @@ parameter_t parameters[] = {
 	{"theta_m_ref", &parameter_storage.theta_m_ref} 
 };
 
-parameter_storage_t parameter_storage;
+parameter_storage_t parameter_storage = {
+	.iq_ref=NONE,
+	.omega_m_ref=NONE,
+	.theta_m_ref=NONE
+};
 
 void dronecan_handle_param_GetSet(CanardInstance* ins, CanardRxTransfer* transfer)
 {

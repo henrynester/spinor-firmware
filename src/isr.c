@@ -26,15 +26,9 @@ volatile isr_in_t _isr_in; //ISR's copy
 
 void dma1_channel1_isr(void) {
 	//BEGIN TIME CRITICAL. t=0 at ADC conversion start, t=1.2us at conversion end
-	volatile uint16_t x = TIM1_CNT;
 	volatile uint32_t t_exec_start = systick_get_value();
-	volatile uint16_t d1 = TIM1_CR1 & TIM_CR1_DIR_DOWN;
-	while(DMA1_CNDTR2 == 3);
-	volatile uint16_t y = TIM1_CNT;
-	volatile uint16_t d2 = TIM1_CR1 & TIM_CR1_DIR_DOWN;
-	volatile uint32_t tprime = systick_get_value();
-	//gpio_clear(LED_PORT, LED_B);
-	//gpio_set(LED_PORT, LED_B);
+	gpio_clear(LED_PORT, LED_B);
+
 	static adc_results_t adc_results;
 	static encoder_t encoder;
 	static foc_t foc;
@@ -50,13 +44,19 @@ void dma1_channel1_isr(void) {
 	//here we request thermistor conversions in place of vbus conversions
 	//at intervals tied to the slow counter
 	if(counter_slow==0*CONTROL_FREQ/12) {
-		//adc_set_measure_mode(ADC_MODE_IA_IB_IC_TFET);
+		adc_set_measure_mode(ADC_MODE_IA_IB_IC_TFET);
 	}
 	if(counter_slow==1*CONTROL_FREQ/12) {
-		//adc_set_measure_mode(ADC_MODE_IA_IB_IC_TMTR);
+		adc_set_measure_mode(ADC_MODE_IA_IB_IC_TMTR);
 	} else {
-		//adc_set_measure_mode(ADC_MODE_IA_IB_IC_VBUS);
+		adc_set_measure_mode(ADC_MODE_IA_IB_IC_VBUS);
 	}
+
+	//use volatile to force register to actually be read at this point, not later
+	//DMA counter is reset to max right before this interrupt because last ADC 
+	//If we are too slow and an ADC trigger occurs before this point, we will have
+	//inconcsistent ADC mode (e.g. one vbus and two temp conversions or something).
+	volatile uint8_t adc_late_channel_switch = (DMA1_CNDTR1 < ADC_BUFFER_LEN);
 
 	encoder_pll_load_next(&encoder); //call before any foc or dynamics control laws...
 	//TIME CRITICAL: must complete before next PWM DMA request, t~1/24kHz*(75% mod depth)=31us 
@@ -64,32 +64,29 @@ void dma1_channel1_isr(void) {
 
 	//immediately report an error if timing deadline missed,
 	//plus tie all phases low
-	//check
-	// (1) that the FOC read->process->write to DMA buffer completed within
-	// 90% of a single PWM period.
-	// (2) [what is really important] that the circular PWM DMA hsan't
-	// looped back around to the first entry because we were too slow to
-	// go fill in new values. This checks that we still have 3 remaining values
-	// to transfer.
+	//check that the FOC read->process->write to PWM completed within
+	//90% of a single PWM period.
 	_isr_out.t_exec_foc = SYSTICK_TO_DELTA_US(t_exec_start, systick_get_value()); 
-	//use volatile to force register to actually be read at this point, not later
-	volatile uint8_t num_pwm_dmas_at_foc_end = DMA1_CNDTR2;
-	if(_isr_out.t_exec_foc > T_EXEC_FOC_MAX || num_pwm_dmas_at_foc_end < 3) {
-		_isr_out.error = ISR_ERROR_FOC_DEADLINE_MISSED;
-		timer_disable_break_main_output(TIM1);
-	}
 
 	//TIME CRITICAL: must occur close to next PWM DMA request 
 	//(within 1/2 1/24kHz period is OK) and with low jitter
 	//code expects angle was read at time of first PWM DMA request
-	encoder_read_angle(); 
+	encoder_read_angle(); //takes 10us for 2x spi trans
 	//END TIME CRITICAL
 	//(still need to finish before next interrupt with some time for main-loop tasks, ofc)
+	//every so often, read status registers of encoder
+	//this takes a while, 15 us for 3x spi trans
+	if(counter_slow==2*CONTROL_FREQ/12) {
+		encoder_read_status(&encoder);
+	}
+	//compute next PLL encoder angle estimate based on current estimate, measured
+	//angle. Also precompute sin, cos for next loop's electrical angles
+	encoder_pll_compute_next(&encoder);	
 
 	//overcurrent check. runs in ISR due to high time sensitivity
-	if(OUTSIDE(adc_results.ia[0], SAFETY_IABC_MIN_INT, SAFETY_IABC_MAX_INT)
-	|| OUTSIDE(adc_results.ib[0], SAFETY_IABC_MIN_INT, SAFETY_IABC_MAX_INT)	
-	|| OUTSIDE(adc_results.ic[0], SAFETY_IABC_MIN_INT, SAFETY_IABC_MAX_INT)) {
+	if(OUTSIDE(adc_results.ia, SAFETY_IABC_MIN_INT, SAFETY_IABC_MAX_INT)
+	|| OUTSIDE(adc_results.ib, SAFETY_IABC_MIN_INT, SAFETY_IABC_MAX_INT)	
+	|| OUTSIDE(adc_results.ic, SAFETY_IABC_MIN_INT, SAFETY_IABC_MAX_INT)) {
 		_isr_out.error = ISR_ERROR_OVERCURRENT;
 		timer_disable_break_main_output(TIM1);
 	}
@@ -106,10 +103,9 @@ void dma1_channel1_isr(void) {
 		encoder.theta_e_offset = _isr_in.theta_e_offset;
 	}
 	if(encoder.theta_m_homing_offset != _isr_in.theta_m_homing_offset) {
-		encoder.theta_m_homing_offset = _isr_in.theta_m_homing_offset;
+		encoder.theta_m_homing_offset = 0x10*_isr_in.theta_m_homing_offset;
 	}
 
-	int32_t iq_ref = 0;
 	//averaging of velocity estimate yields a smoother result
 	//however, we do need high frequencies in omega_m for the PLL
 #define OMEGA_M_AVG_LEN 16 
@@ -123,13 +119,29 @@ void dma1_channel1_isr(void) {
 	if(omega_m_avgidx >= OMEGA_M_AVG_LEN) {
 		omega_m_avgidx = 0;
 	}
+	int32_t omega_m_ref = NONE;
+	int32_t iq_ref = NONE;
+	//position control law
+	if(_isr_in.theta_m_ref != NONE) {
+		int32_t theta_m_ref = CONSTRAIN(_isr_in.theta_m_ref*0x10,
+			THETA_M_MIN_INT, THETA_M_MAX_INT);
+		int32_t theta_m_error = encoder.theta_m_homed - theta_m_ref; 
+		theta_m_error = CONSTRAIN(theta_m_error, -INT16_MAX, INT16_MAX); //avoid overflow
+		omega_m_ref = FMUL(0.1*-POS_KP*THETA_M_LSB/OMEGA_M_LSB, theta_m_error);
+	} 
+	//or use direct velocity control
+	else if(_isr_in.omega_m_ref != NONE) {
+		omega_m_ref = _isr_in.omega_m_ref; 
+	}
 	//velocity control law
-	if(_isr_in.omega_m_ref != 0) {
+	if(omega_m_ref != NONE) {
+		omega_m_ref = CONSTRAIN(omega_m_ref,
+			-VEL_LIMIT_INT, VEL_LIMIT_INT);
 		static int32_t omega_m_err_integral = 0;
-		int32_t omega_m_err = (omega_m_avg) - _isr_in.omega_m_ref*OMEGA_M_AVG_LEN;
+		int32_t omega_m_err = (omega_m_avg) - omega_m_ref*OMEGA_M_AVG_LEN;
 		//reduce effective gain at higher commanded speeds
 		//to avoid oscillations
-		int32_t factor = 4*_isr_in.omega_m_ref;
+		int32_t factor = 4*omega_m_ref;
 		if(factor > 0x7800) {
 			factor = 0x7800;
 		}
@@ -151,16 +163,16 @@ void dma1_channel1_isr(void) {
 		}
 		iq_ref = omega_m_tau_ref;
 	} 
-	//direct torque control
-	else if(_isr_in.iq_ref != 0) {
-		iq_ref = _isr_in.iq_ref;
+	//or use direct torque control
+	else if(_isr_in.iq_ref != NONE) {
+		iq_ref = _isr_in.iq_ref; 
 	} 
-	//stop
+	//torque, vel, pos inputs are all NONE. stop
 	else {
 		iq_ref = 0;
 	}
 	//average torque setpoint
-#define IDQ_REF_AVG_LEN 16 
+#define IDQ_REF_AVG_LEN 1 
 	static uint8_t idq_ref_avgidx = 0;
 	static int32_t idq_ref_avgarr[IDQ_REF_AVG_LEN];
 	static int32_t idq_ref_avg = 0;
@@ -187,39 +199,36 @@ void dma1_channel1_isr(void) {
 	foc.id_ref = 0;
 	
 	//outputs reported from this control loop
-	_isr_out.ia = adc_results.ia[0]; 
-	_isr_out.ib = adc_results.ib[0]; 
-	_isr_out.ic = adc_results.ic[0]; 
+	_isr_out.ia = adc_results.ia; 
+	_isr_out.ib = adc_results.ib; 
+	_isr_out.ic = adc_results.ic; 
 	_isr_out.id = foc.id;
 	_isr_out.iq = foc.iq;
 	_isr_out.iq_ref_combined = foc.iq_ref;
-	_isr_out.va = pwm_a_buffer[0];
-	_isr_out.vb = pwm_b_buffer[0];
-	_isr_out.vc = pwm_c_buffer[0];
+	_isr_out.va = foc.pwm_a;
+	_isr_out.vb = foc.pwm_b;
+	_isr_out.vc = foc.pwm_c;
 	_isr_out.vd = foc.vd;
 	_isr_out.vq = foc.vq;
-	_isr_out.theta_m = encoder.theta_m_homed;
+	_isr_out.theta_m = encoder.theta_m_homed / 0x10;
 	_isr_out.omega_m = encoder.omega_m;
-	_isr_out.theta_e = encoder.theta_e[3];
+	_isr_out.theta_e = encoder.theta_e;
 	_isr_out.n_encoder_err = encoder.num_spi_errors;
 	_isr_out.encoder_err = encoder.status;
 	_isr_out.v_bus = adc_results.vbus;
 	_isr_out.T_mtr = adc_results.Tmtr;
 	_isr_out.T_fet = adc_results.Tfet;
 
-	//every so often, read status registers of encoder
-	if(counter_slow==2*CONTROL_FREQ/12) {
-		encoder_read_status(&encoder);
-	}
-	//compute next PLL encoder angle estimate based on current estimate, measured
-	//angle. Also precompute sin, cos for next loop's electrical angles
-	encoder_pll_compute_next(&encoder);	
 	
 	//Keep track of execution time of this ISR
 	uint16_t t_exec_end = systick_get_value();
 	_isr_out.t_exec_foc_vel_pos = SYSTICK_TO_DELTA_US(t_exec_start, t_exec_end);
 	if(_isr_out.t_exec_foc_vel_pos > T_EXEC_FOC_POS_VEL_MAX) {
 		_isr_out.error = ISR_ERROR_POS_VEL_DEADLINE_MISSED;
+		timer_disable_break_main_output(TIM1);
+	}
+	if(_isr_out.t_exec_foc > T_EXEC_FOC_MAX || adc_late_channel_switch) {
+		_isr_out.error = ISR_ERROR_FOC_DEADLINE_MISSED;
 		timer_disable_break_main_output(TIM1);
 	}
 	//clear errors and re-enable FETs once the FOC is in stopped mode

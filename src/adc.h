@@ -11,9 +11,9 @@ typedef enum {
 extern volatile uint16_t adc_buffer[ADC_BUFFER_LEN];
 
 typedef struct {
-	uint16_t ia[3];
-	uint16_t ib[3];
-	uint16_t ic[3];
+	uint16_t ia;
+	uint16_t ib;
+	uint16_t ic;
 	uint16_t vbus;
 	uint16_t Tmtr;
 	uint16_t Tfet;

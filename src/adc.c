@@ -6,23 +6,20 @@ volatile uint16_t adc_buffer[ADC_BUFFER_LEN];
 adc_measure_mode_t _mode = ADC_MODE_IA_IB_IC_VBUS;
 
 void adc_copy_results(adc_results_t *adc_results) {
-	adc_results->ia[0] = adc_buffer[0]; 
-	adc_results->ib[0] = adc_buffer[1]; 
-	adc_results->ic[0] = adc_buffer[2]; 
-	adc_results->ia[1] = adc_buffer[4]; 
-	adc_results->ib[1] = adc_buffer[5]; 
-	adc_results->ic[1] = adc_buffer[6]; 
-	adc_results->ia[2] = adc_buffer[8]; 
-	adc_results->ib[2] = adc_buffer[9]; 
-	adc_results->ic[2] = adc_buffer[10]; 
+	uint16_t misc = 0;
+	for(uint8_t i = 0; i < ADC_BUFFER_LEN; i += 3) {
+		adc_results->ia += adc_buffer[i];
+		adc_results->ib += adc_buffer[i+1];
+		adc_results->ic += adc_buffer[i+2];
+		misc += adc_buffer[i+3];
+	}
 
-	uint16_t acc = (adc_buffer[3] + adc_buffer[7] + adc_buffer[11]);
 	if(_mode == ADC_MODE_IA_IB_IC_VBUS) {
-		adc_results->vbus = acc;
+		adc_results->vbus = misc;
 	} else if(_mode == ADC_MODE_IA_IB_IC_TMTR) {
-		adc_results->Tmtr = acc;
+		adc_results->Tmtr = misc;
 	} else if(_mode == ADC_MODE_IA_IB_IC_TFET) {
-		adc_results->Tfet = acc;
+		adc_results->Tfet = misc;
 	}
 }
 

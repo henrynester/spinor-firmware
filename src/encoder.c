@@ -172,14 +172,7 @@ void encoder_pll_compute_next(encoder_t *encoder) {
 	uint16_t theta_e = ((_theta_m_next & 0x3FFF) * NUM_POLE_PAIRS) & 0x3FFF;
 	theta_e -= encoder->theta_e_offset;
 	theta_e &= 0x3FFF;
-	int16_t theta_e_increment = ((encoder->omega_m * NUM_POLE_PAIRS) / (0x100));
-	theta_e -= 3*theta_e_increment;
-	theta_e &= 0x3FFF;
-	for(uint8_t i = 0; i < 6; i++) {
-		encoder->theta_e[i] = theta_e; 
-		encoder->cos_theta_e[i] = fcos(theta_e); 
-		encoder->sin_theta_e[i] = fsin(theta_e);
-		theta_e += theta_e_increment;
-		theta_e &= 0x3FFF;
-	}
+	encoder->theta_e = theta_e; 
+	encoder->cos_theta_e = fcos(theta_e); 
+	encoder->sin_theta_e = fsin(theta_e);
 }

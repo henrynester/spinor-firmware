@@ -19,7 +19,7 @@
 #define PLL_KI 0.25*PLL_KP*PLL_KP //(rad/s2)/rad
 
 //FOC properties
-#define FOC_BANDWIDTH 700.0 //rad/s
+#define FOC_BANDWIDTH 750.0 //rad/s
 #define FOC_KP FOC_BANDWIDTH*PHASE_INDUCTANCE //Ohm
 #define FOC_KI FOC_BANDWIDTH*PHASE_RESISTANCE //Ohm/s
 
@@ -42,12 +42,12 @@
 
 //Calibration properties
 #define CAL_OFFSET_VD 2000 
-#define CAL_OFFSET_STEP (0x4000/0x04) //theta e counts
+#define CAL_OFFSET_STEP (0x4000/0x10) //theta e counts
 #define CAL_OFFSET_NUM_SAMPLES 2*((NUM_POLE_PAIRS/14 * 0x4000) / CAL_OFFSET_STEP)
 #define CAL_OFFSET_DELAY 200 //ms
 #define CAL_OFFSET_INITIAL_DELAY 1000 //ms
-#define CAL_HOME_VEL (10.0*60.0*2*M_PI) //rad/s output
-#define CAL_HOME_THRESHOLD_TORQUE 0x80 //
+#define CAL_HOME_VEL (10.0/60.0*2*M_PI) //rad/s output
+#define CAL_HOME_THRESHOLD_TORQUE 0.2 //N-m
 #define CAL_HOME_THRESHOLD_TIME 500 //ms
 				  
 //Safety limits

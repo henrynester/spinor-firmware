@@ -20,7 +20,8 @@ bin/src/dronecan.o: src/dronecan.c src/dronecan.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.GetSet_res.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.NumericValue.h \
  src/math.h /usr/lib/gcc/arm-none-eabi/12.2.1/include/arm_fp16.h \
- src/thermistor.h lib/libopencm3/include/libopencm3/stm32/rcc.h \
+ src/thermistor.h src/constants.h \
+ lib/libopencm3/include/libopencm3/stm32/rcc.h \
  lib/libopencm3/include/libopencm3/cm3/common.h \
  lib/libopencm3/include/libopencm3/stm32/memorymap.h \
  lib/libopencm3/include/libopencm3/stm32/f0/memorymap.h \

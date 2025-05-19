@@ -23,10 +23,10 @@
 
 
 //engineering unit->internal representation conversion factors
-//100x amplified 1mOhm shunt -> 100mV/amp. 12bit, 3.3V max.
+//100x amplified 1mOhm shunt -> 100mV/amp. 12bit, 3.3V max. 3x summation for averaging
 #define IABC_LSB ((3.3/0.1)/(float)(0x1000)/3.0) //A
-//Park transform preserves amplitudes, but 3x samples are summed for averaging
-#define IDQ_LSB (IABC_LSB/3.0) //A
+//Park transform preserves amplitudes
+#define IDQ_LSB (IABC_LSB) //A
 #define TORQUE_IDQ_LSB (TORQUE_CONSTANT * IDQ_LSB) 
 #define TORQUE_MIN_INT -(int32_t)(TORQUE_LIMIT/TORQUE_IDQ_LSB)
 #define TORQUE_MAX_INT (int32_t)(TORQUE_LIMIT/TORQUE_IDQ_LSB)
@@ -39,11 +39,16 @@
 #define ENCODER_CPR 0x4000
 #define THETA_M_LSB (2.0*M_PI/OUTPUT_GEARING/(float)ENCODER_CPR) //rad output
 #define THETA_E_LSB (2.0*M_PI/(float)ENCODER_CPR) //rad electrical phase
+#define THETA_M_MIN_INT -(int32_t)((2.0*M_PI)/THETA_M_LSB)						  
+#define THETA_M_MAX_INT (int32_t)((2.0*M_PI)/THETA_M_LSB)						  
+#define THETA_M_INPUT_LSB (THETA_M_LSB*(float)0x10)
 //internal angular velocity repr is scaled up by 0x100 to give more resolution
 #define OMEGA_M_LSB (2.0*M_PI/OUTPUT_GEARING/(float)ENCODER_CPR/(float)0x100 / CONTROL_DT) //rad/s output
-#define VEL_LIMIT_INT (VEL_LIMIT/OMEGA_M_LSB)
+#define VEL_LIMIT_INT (int32_t)(VEL_LIMIT/OMEGA_M_LSB)
 //100k-10k voltage divider, 3x samples summed for averaging
 #define VBUS_LSB (3.3*11.0/(float)0x1000/3.0) //V
+
+#define NONE INT16_MIN
 
 //convert safety limits
 #define SAFETY_IABC_MAX_INT (uint16_t)( (uint16_t)(SAFETY_IABC_MAX/IABC_LSB) + 0x1000/2)
