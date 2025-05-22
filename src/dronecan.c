@@ -154,12 +154,7 @@ void dronecan_publish_debug_KeyValue(char* key, float value, uint8_t* transfer_i
 }
 
 parameter_t parameters[] = {
-	{"vd_ref", &parameter_storage.vd_ref}, 
-	{"vq_ref", &parameter_storage.vq_ref}, 
-	{"id_ref", &parameter_storage.id_ref}, 
-	{"iq_ref", &parameter_storage.iq_ref},
-	{"omega_m_ref", &parameter_storage.omega_m_ref},
-	{"theta_m_ref", &parameter_storage.theta_m_ref} 
+
 };
 
 parameter_storage_t parameter_storage = {

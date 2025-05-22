@@ -1,5 +1,6 @@
 #include "ControllerStateMachine.h"
 #include "constants.h"
+#include "flash.h"
 
 static void CSM_enter_CALIBRATE_ENCODER(CSM_t *self) {
 	self->isr_in->foc_control_mode=FOC_CONTROL_MODE_VDQ_THETA_E;
@@ -9,6 +10,7 @@ static void CSM_enter_CALIBRATE_ENCODER(CSM_t *self) {
 	self->encoder_offset_valid = false;
 	self->num_samples = 0;
 	self->offset_accumulate = 0;
+	
 }
 static void CSM_enter_MOVE_A(CSM_t *self) {
 	self->isr_in->theta_e_ref = 0;
@@ -29,9 +31,10 @@ static void CSM_enter_MEASURE(CSM_t *self) {
 	self->num_samples++;
 }
 static void CSM_exit_CALIBRATE_ENCODER(CSM_t *self) {
-	self->isr_in->theta_e_offset = (int32_t)((float)self->offset_accumulate / (float)self->num_samples);
-	self->encoder_offset_valid = true;
-	//write offset to flash
+	self->config->theta_e_offset = (int32_t)self->offset_accumulate / (int32_t)self->num_samples;
+	if(config_save()) {
+		//while(1);
+	}
 }
 static void CSM_enter_HOMING(CSM_t *self) {
 	self->homing_valid = false;
@@ -84,8 +87,8 @@ void CSM_dispatch_event(CSM_t *self, ControllerEvent_t event) {
 							self->t_start = event.t;
 						} else {
 							CSM_exit_CALIBRATE_ENCODER(self);
-							CSM_enter_HOMING(self);
-							self->state = CONTROLLERSTATE_HOMING;
+							CSM_enter_ARMED(self);
+							self->state = CONTROLLERSTATE_ARMED;
 						}
 						break;
 					case CONTROLLERSUBSTATE_MOVE:
@@ -107,17 +110,23 @@ void CSM_dispatch_event(CSM_t *self, ControllerEvent_t event) {
 					self->state = CONTROLLERSTATE_ARMED;
 				}
 			} else if(self->state == CONTROLLERSTATE_ARMED) {
-			       if(event.t > self->t_start+300000) {
+			       if(false) {
 				       CSM_enter_DISARMED(self);
 				       self->state = CONTROLLERSTATE_DISARMED;
 			       }
 			}
 			//used at startup
 			else if(self->state == CONTROLLERSTATE_NULL) {
-				CSM_enter_CALIBRATE_ENCODER(self);
-				self->state = CONTROLLERSTATE_CALIBRATE_ENCODER;
-				self->substate = CONTROLLERSUBSTATE_MOVE_B;
-				self->t_start=event.t;
+				if(self->config->theta_e_offset == NONE) {
+					CSM_enter_CALIBRATE_ENCODER(self);
+					CSM_enter_MOVE_B(self);
+					self->state = CONTROLLERSTATE_CALIBRATE_ENCODER;
+					self->substate = CONTROLLERSUBSTATE_MOVE_B;
+					self->t_start=event.t;
+				} else {
+					CSM_enter_HOMING(self);
+					self->state = CONTROLLERSTATE_HOMING;
+				}
 			}
 			break;
 		case EVENT_ERROR:
@@ -161,4 +170,5 @@ void CSM_init(CSM_t *self, isr_in_t *isr_in, isr_out_t *isr_out) {
 	self->isr_out = isr_out;
 	self->state = CONTROLLERSTATE_NULL;
 	self->substate = CONTROLLERSUBSTATE_NULL;
+	self->config = config_get();
 }

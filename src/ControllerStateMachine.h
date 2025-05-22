@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include "config.h"
 #include "isr.h"
+#include "flash.h"
 
 typedef enum {
 	CONTROLLERSTATE_NULL,
@@ -44,6 +45,7 @@ typedef struct {
 	ControllerSubstate_t substate;
 	isr_in_t *isr_in;
 	isr_out_t *isr_out;
+	config_t *config;
 	uint32_t t_start;
 	int32_t offset_accumulate;
 	uint16_t num_samples;

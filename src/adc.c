@@ -7,7 +7,10 @@ adc_measure_mode_t _mode = ADC_MODE_IA_IB_IC_VBUS;
 
 void adc_copy_results(adc_results_t *adc_results) {
 	uint16_t misc = 0;
-	for(uint8_t i = 0; i < ADC_BUFFER_LEN; i += 3) {
+	adc_results->ia=0;
+	adc_results->ib=0;
+	adc_results->ic=0;
+	for(uint8_t i = 0; i < ADC_BUFFER_LEN; i += 4) {
 		adc_results->ia += adc_buffer[i];
 		adc_results->ib += adc_buffer[i+1];
 		adc_results->ic += adc_buffer[i+2];

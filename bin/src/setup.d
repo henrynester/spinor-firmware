@@ -46,4 +46,9 @@ bin/src/setup.o: src/setup.c src/setup.h src/constants.h src/config.h \
  lib/libopencm3/include/libopencm3/cm3/nvic.h \
  lib/libopencm3/include/libopencm3/dispatch/nvic.h \
  lib/libopencm3/include/libopencm3/stm32/f0/nvic.h \
- lib/libopencm3/include/libopencm3/cm3/systick.h
+ lib/libopencm3/include/libopencm3/cm3/systick.h \
+ lib/libopencm3/include/libopencm3/stm32/flash.h \
+ lib/libopencm3/include/libopencm3/stm32/f0/flash.h \
+ lib/libopencm3/include/libopencm3/stm32/common/flash_common_all.h \
+ lib/libopencm3/include/libopencm3/stm32/common/flash_common_f.h \
+ lib/libopencm3/include/libopencm3/stm32/common/flash_common_f01.h

@@ -122,14 +122,19 @@ static void _inverse_park_inject_harmonic_three(
 	*out_pwmc = CONSTRAIN((v_center+vc)/0x40, 0, PWM_MAX);
 }
 
+void foc_reset(void) {
+	_id_integral = 0;
+	_iq_integral = 0;
+}
+
 void foc_update(foc_t *foc, adc_results_t *adc_results, encoder_t *encoder) {
 	//take Park transform of three previous phase current samples
 	//using three differently retarded ;) electrical angles
 	gpio_set(LED_PORT, LED_B);
 	gpio_clear(LED_PORT, LED_B);
 #define FOC_AVG_LEN 8
-	static int16_t id_avg_arr[FOC_AVG_LEN];
-	static int16_t iq_avg_arr[FOC_AVG_LEN];
+	static int32_t id_avg_arr[FOC_AVG_LEN];
+	static int32_t iq_avg_arr[FOC_AVG_LEN];
 	static int32_t id_avg=0, iq_avg=0;
 	static uint16_t idq_avg_idx=0;
 
@@ -139,9 +144,9 @@ void foc_update(foc_t *foc, adc_results_t *adc_results, encoder_t *encoder) {
 	_park(
 		encoder->cos_theta_e,
 		encoder->sin_theta_e,
-		&adc_results->ia,
-		&adc_results->ib,
-		&adc_results->ic,
+		adc_results->ia,
+		adc_results->ib,
+		adc_results->ic,
 		&id,
 		&iq
 	);

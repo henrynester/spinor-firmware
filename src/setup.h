@@ -4,3 +4,4 @@
 #include <stdint.h>
 
 void setup(void);
+void start_timers(void);

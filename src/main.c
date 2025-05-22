@@ -6,6 +6,7 @@
 #include "math.h"
 #include "isr.h"
 #include "ControllerStateMachine.h"
+#include "flash.h"
 
 #include "libcanard/canard.h"
 #include "dsdl/dsdl_generated/include/dronecan_msgs.h"
@@ -29,7 +30,14 @@ CSM_t controller;
 int main(void) {
 	setup();
 	dronecan_init();
+	if(config_load()) {
+		config_defaults();
+	}
+	//config_apply(NULL, NULL); //very impotant
+	
 	CSM_init(&controller, &isr_in, &isr_out);
+	//ISR will start running at 8kHz once timer starts
+	start_timers();
 	while(1) {
 		static uint32_t t_loop=0;
 		if(g_uptime_ms > t_loop+5) {
@@ -45,10 +53,7 @@ int main(void) {
 			}
 			CSM_dispatch_event(&controller, event);
 			if(controller.state == CONTROLLERSTATE_ARMED) {
-			isr_in.id_ref = parameter_storage.id_ref;
 			isr_in.iq_ref = parameter_storage.iq_ref;
-			isr_in.vd_ref = parameter_storage.vd_ref;
-			isr_in.vq_ref = parameter_storage.vq_ref;
 			isr_in.omega_m_ref = parameter_storage.omega_m_ref;
 			isr_in.theta_m_ref = parameter_storage.theta_m_ref;
 			}

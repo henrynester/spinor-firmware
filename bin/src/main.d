@@ -33,7 +33,7 @@ bin/src/main.o: src/main.c src/dronecan.h \
  lib/libopencm3/include/libopencm3/stm32/f0/adc.h \
  lib/libopencm3/include/libopencm3/stm32/common/adc_common_v2.h \
  lib/libopencm3/include/libopencm3/stm32/common/adc_common_v2_single.h \
- src/setup.h src/ControllerStateMachine.h \
+ src/setup.h src/ControllerStateMachine.h src/flash.h \
  lib/dsdl/dsdl_generated/include/dronecan_msgs.h \
  lib/dsdl/dsdl_generated/include/local.HelloWorld.h \
  lib/dsdl/dsdl_generated/include/uavcan.CoarseOrientation.h \

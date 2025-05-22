@@ -42,8 +42,8 @@
 
 //Calibration properties
 #define CAL_OFFSET_VD 2000 
-#define CAL_OFFSET_STEP (0x4000/0x10) //theta e counts
-#define CAL_OFFSET_NUM_SAMPLES 2*((NUM_POLE_PAIRS/14 * 0x4000) / CAL_OFFSET_STEP)
+#define CAL_OFFSET_STEP (0x4000/0x08) //theta e counts
+#define CAL_OFFSET_NUM_SAMPLES 2*((NUM_POLE_PAIRS * 0x4000) / CAL_OFFSET_STEP)
 #define CAL_OFFSET_DELAY 200 //ms
 #define CAL_OFFSET_INITIAL_DELAY 1000 //ms
 #define CAL_HOME_VEL (10.0/60.0*2*M_PI) //rad/s output
@@ -56,7 +56,6 @@
 #define SAFETY_IBUS_MAX 1.0
 #define SAFETY_IBUS_REGEN_MAX 1.0
 #define SAFETY_IABC_MAX 5.0
-#define SAFETY_IDQ_MAX 5.0
 #define SAFETY_VEL_MAX (200.0)*60.0*2*M_PI
 
 //dronecan can r/w this struct, which has pointers
@@ -68,12 +67,31 @@ typedef struct {
 } parameter_t;
 
 typedef struct {
-	float vd_ref;
-	float vq_ref;
-	float id_ref;
-	float iq_ref;
-	float omega_m_ref;
+	float safety_vbus_min;
+	float safety_vbus_max;
+	float safety_ibus_max;
+	float safety_ibus_regen_max;
+	float safety_iabc_max;
+	float safety_vel_max;
+	
+	float homing_velocity;
+	float homing_threshold_torque;
+	float homing_threshold_time;
+
+	float pos_limit_min;
+	float pos_limit_max;
+	float vel_limit;
+	float torque_limit;
+
+	float encoder_invert;
+	float phase_invert;
+
+	float node_id;
+	float actuator_index; 
+
 	float theta_m_ref;
+	float omega_m_ref;
+	float iq_ref;
 } parameter_storage_t;
 
 extern parameter_storage_t parameter_storage;

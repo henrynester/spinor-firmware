@@ -11,6 +11,7 @@
 #include "libopencm3/stm32/spi.h"
 #include "libopencm3/cm3/nvic.h"
 #include "libopencm3/cm3/systick.h"
+#include "libopencm3/stm32/flash.h"
 
 void nvic_setup(void);
 void clocks_setup(void);
@@ -74,6 +75,7 @@ void clocks_setup() {
 	rcc_periph_clock_enable(RCC_ADC);
 	rcc_periph_clock_enable(RCC_CAN);
 	rcc_periph_clock_enable(RCC_SPI1);
+	rcc_periph_clock_enable(RCC_FLTIF);
 	
 	//setup SysTick 1ms interrupt for timekeeping
 	systick_set_reload(SYSTICK_RELOAD);
@@ -200,6 +202,9 @@ void setup(void) {
 	adc_setup();
 	pwm_timer_setup();
 	gpio_setup(); //call last so that peripheral outputs are steady when linked to GPIO pins
+}
+
+void start_timers(void) {
 	//start the PWM generation timer, which will trigger periodic interrupts
 	timer_enable_break_main_output(TIM1);
 	timer_enable_counter(TIM1);

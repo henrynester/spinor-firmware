@@ -10,6 +10,7 @@ CFILES += src/math.c
 CFILES += src/adc.c
 CFILES += src/thermistor.c
 CFILES += src/ControllerStateMachine.c
+CFILES += src/flash.c
 
 CFILES += lib/libcanard/canard.c lib/libcanard/drivers/stm32/canard_stm32.c
 SHARED_DIR += lib lib/libcanard 
@@ -20,6 +21,9 @@ CFILES += lib/dsdl/dsdl_generated/src/uavcan.protocol.NodeStatus.c
 CFILES += lib/dsdl/dsdl_generated/src/uavcan.protocol.debug.KeyValue.c
 CFILES += lib/dsdl/dsdl_generated/src/uavcan.protocol.param.GetSet_req.c
 CFILES += lib/dsdl/dsdl_generated/src/uavcan.protocol.param.GetSet_res.c
+
+# set linker script to our custom one that creates a config section in flas
+LINKERSCRIPT = stm32f072cbt6_configsection.ld
 
 DEVICE = stm32f072cbt6
 OOCD_INTERFACE = stlink

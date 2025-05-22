@@ -28,7 +28,7 @@ bin/src/isr.o: src/isr.c src/isr.h src/foc.h src/adc.h \
  lib/libopencm3/include/libopencm3/stm32/f0/adc.h \
  lib/libopencm3/include/libopencm3/stm32/common/adc_common_v2.h \
  lib/libopencm3/include/libopencm3/stm32/common/adc_common_v2_single.h \
- src/ControllerStateMachine.h \
+ src/ControllerStateMachine.h src/flash.h lib/libcanard/canard.h \
  lib/libopencm3/include/libopencm3/cm3/nvic.h \
  lib/libopencm3/include/libopencm3/dispatch/nvic.h \
  lib/libopencm3/include/libopencm3/stm32/f0/nvic.h \

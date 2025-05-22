@@ -51,6 +51,6 @@
 #define NONE INT16_MIN
 
 //convert safety limits
-#define SAFETY_IABC_MAX_INT (uint16_t)( (uint16_t)(SAFETY_IABC_MAX/IABC_LSB) + 0x1000/2)
-#define SAFETY_IABC_MIN_INT (uint16_t)(-(uint16_t)(SAFETY_IABC_MAX/IABC_LSB) + 0x1000/2)
+#define SAFETY_IABC_MAX_INT (uint16_t)( (uint16_t)(SAFETY_IABC_MAX/IABC_LSB) + 0x3000/2)
+#define SAFETY_IABC_MIN_INT (uint16_t)(-(uint16_t)(SAFETY_IABC_MAX/IABC_LSB) + 0x3000/2)
 

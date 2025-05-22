@@ -26,7 +26,6 @@ typedef struct {
 	int16_t vd_ref;
 	int16_t vq_ref;
 	uint16_t theta_e_ref;
-	int16_t theta_e_offset;
 	int32_t theta_m_homing_offset;
 } isr_in_t;
 

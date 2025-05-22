@@ -7,6 +7,7 @@
 #include "constants.h"
 #include "math.h"
 #include "ControllerStateMachine.h"
+#include "flash.h"
 
 #include "libopencm3/cm3/nvic.h"
 #include "libopencm3/cm3/systick.h"
@@ -23,11 +24,18 @@ void sys_tick_handler(void) {
 volatile isr_out_t _isr_out; //ISR's copy
 //data moving main->ISR
 volatile isr_in_t _isr_in; //ISR's copy
+//config coming into ISR DO NOT EDIT HERE
+volatile config_t *isr_config = NULL;
 
 void dma1_channel1_isr(void) {
 	//BEGIN TIME CRITICAL. t=0 at ADC conversion start, t=1.2us at conversion end
 	volatile uint32_t t_exec_start = systick_get_value();
 	gpio_clear(LED_PORT, LED_B);
+
+	//get pointer to config at beginning
+	if(isr_config == NULL) {
+		isr_config = config_get();
+	}
 
 	static adc_results_t adc_results;
 	static encoder_t encoder;
@@ -83,24 +91,25 @@ void dma1_channel1_isr(void) {
 	//angle. Also precompute sin, cos for next loop's electrical angles
 	encoder_pll_compute_next(&encoder);	
 
-	//overcurrent check. runs in ISR due to high time sensitivity
-	if(OUTSIDE(adc_results.ia, SAFETY_IABC_MIN_INT, SAFETY_IABC_MAX_INT)
-	|| OUTSIDE(adc_results.ib, SAFETY_IABC_MIN_INT, SAFETY_IABC_MAX_INT)	
-	|| OUTSIDE(adc_results.ic, SAFETY_IABC_MIN_INT, SAFETY_IABC_MAX_INT)) {
-		_isr_out.error = ISR_ERROR_OVERCURRENT;
-		timer_disable_break_main_output(TIM1);
-	}
-
 	//collect inputs to this control loop
-	foc.control_mode = _isr_in.foc_control_mode;
+	//handle FOC control mode switches
+	static int32_t omega_m_err_integral = 0;
+	if(_isr_in.foc_control_mode != foc.control_mode) {
+		//reset integrators when first activating FOC
+		foc.control_mode = _isr_in.foc_control_mode;
+		if(foc.control_mode == FOC_CONTROL_MODE_IDQ) {
+			foc_reset();
+			omega_m_err_integral = 0;
+		}
+	}
 	if(foc.control_mode == FOC_CONTROL_MODE_VDQ 
 		|| foc.control_mode == FOC_CONTROL_MODE_VDQ_THETA_E) {
 		foc.vd_ref = _isr_in.vd_ref;
 		foc.vq_ref = _isr_in.vq_ref;
 		foc.theta_e_ref = _isr_in.theta_e_ref;
 	}
-	if(encoder.theta_e_offset != _isr_in.theta_e_offset) {
-		encoder.theta_e_offset = _isr_in.theta_e_offset;
+	if(encoder.theta_e_offset != isr_config->theta_e_offset) {
+		encoder.theta_e_offset = isr_config->theta_e_offset;
 	}
 	if(encoder.theta_m_homing_offset != _isr_in.theta_m_homing_offset) {
 		encoder.theta_m_homing_offset = 0x10*_isr_in.theta_m_homing_offset;
@@ -132,12 +141,16 @@ void dma1_channel1_isr(void) {
 	//or use direct velocity control
 	else if(_isr_in.omega_m_ref != NONE) {
 		omega_m_ref = _isr_in.omega_m_ref; 
+	} 
+	//torque control, or just disabled
+	else {
+		omega_m_err_integral = 0;
 	}
+		
 	//velocity control law
 	if(omega_m_ref != NONE) {
 		omega_m_ref = CONSTRAIN(omega_m_ref,
 			-VEL_LIMIT_INT, VEL_LIMIT_INT);
-		static int32_t omega_m_err_integral = 0;
 		int32_t omega_m_err = (omega_m_avg) - omega_m_ref*OMEGA_M_AVG_LEN;
 		//reduce effective gain at higher commanded speeds
 		//to avoid oscillations
@@ -165,6 +178,7 @@ void dma1_channel1_isr(void) {
 	} 
 	//or use direct torque control
 	else if(_isr_in.iq_ref != NONE) {
+		omega_m_err_integral = 0;
 		iq_ref = _isr_in.iq_ref; 
 	} 
 	//torque, vel, pos inputs are all NONE. stop
@@ -219,7 +233,14 @@ void dma1_channel1_isr(void) {
 	_isr_out.T_mtr = adc_results.Tmtr;
 	_isr_out.T_fet = adc_results.Tfet;
 
-	
+	//ISR fast safety checks
+	//overcurrent check. runs in ISR due to high time sensitivity
+	if(OUTSIDE(adc_results.ia, SAFETY_IABC_MIN_INT, SAFETY_IABC_MAX_INT)
+	|| OUTSIDE(adc_results.ib, SAFETY_IABC_MIN_INT, SAFETY_IABC_MAX_INT)	
+	|| OUTSIDE(adc_results.ic, SAFETY_IABC_MIN_INT, SAFETY_IABC_MAX_INT)) {
+		_isr_out.error = ISR_ERROR_OVERCURRENT;
+		timer_disable_break_main_output(TIM1);
+	}
 	//Keep track of execution time of this ISR
 	uint16_t t_exec_end = systick_get_value();
 	_isr_out.t_exec_foc_vel_pos = SYSTICK_TO_DELTA_US(t_exec_start, t_exec_end);
@@ -230,11 +251,6 @@ void dma1_channel1_isr(void) {
 	if(_isr_out.t_exec_foc > T_EXEC_FOC_MAX || adc_late_channel_switch) {
 		_isr_out.error = ISR_ERROR_FOC_DEADLINE_MISSED;
 		timer_disable_break_main_output(TIM1);
-	}
-	//clear errors and re-enable FETs once the FOC is in stopped mode
-	if(foc.control_mode == FOC_CONTROL_MODE_STOP) {
-		//_isr_out.error = ISR_ERROR_OK;
-		//timer_enable_break_main_output(TIM1);
 	}
 
 	gpio_set(LED_PORT, LED_B);
