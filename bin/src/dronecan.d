@@ -12,7 +12,7 @@ bin/src/dronecan.o: src/dronecan.c src/dronecan.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.NodeStatus.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.SoftwareVersion.h \
  lib/libcanard/canard.h src/isr.h src/foc.h src/adc.h src/encoder.h \
- src/config.h \
+ src/flash.h src/config.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.GetSet.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.GetSet_req.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.Value.h \
@@ -41,4 +41,6 @@ bin/src/dronecan.o: src/dronecan.c src/dronecan.h \
  /usr/include/newlib/sys/string.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.GetNodeInfo.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.GetNodeInfo_req.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.debug.KeyValue.h
+ lib/dsdl/dsdl_generated/include/uavcan.protocol.debug.KeyValue.h \
+ lib/dsdl/dsdl_generated/include/local.SPINORArrayCommand.h \
+ lib/dsdl/dsdl_generated/include/local.SPINORCommand.h

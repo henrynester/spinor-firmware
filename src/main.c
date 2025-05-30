@@ -25,14 +25,16 @@
 //main's copy			  
 isr_out_t isr_out;
 isr_in_t isr_in;
+
 CSM_t controller;
+uint8_t ignore_cmds;
 
 int main(void) {
 	setup();
-	dronecan_init();
 	if(config_load()) {
 		config_defaults();
 	}
+	dronecan_init(&isr_in, &isr_out, &ignore_cmds);
 	//config_apply(NULL, NULL); //very impotant
 	
 	CSM_init(&controller, &isr_in, &isr_out);
@@ -53,9 +55,9 @@ int main(void) {
 			}
 			CSM_dispatch_event(&controller, event);
 			if(controller.state == CONTROLLERSTATE_ARMED) {
-			isr_in.iq_ref = parameter_storage.iq_ref;
-			isr_in.omega_m_ref = parameter_storage.omega_m_ref;
-			isr_in.theta_m_ref = parameter_storage.theta_m_ref;
+				ignore_cmds = false;
+			} else {
+				ignore_cmds = false;
 			}
 			sync_isr_in(&isr_in);
 

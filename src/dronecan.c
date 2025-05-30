@@ -1,5 +1,6 @@
 #include "dronecan.h"
 
+#include "flash.h"
 #include "config.h"
 #include "thermistor.h"
 #include "constants.h"
@@ -12,6 +13,7 @@
 #include "uavcan.protocol.GetNodeInfo.h"
 #include "uavcan.protocol.debug.KeyValue.h"
 #include "uavcan.protocol.param.GetSet.h"
+#include "local.SPINORArrayCommand.h"
 
 #include <string.h>
 
@@ -25,9 +27,15 @@ static uint8_t g_canard_memory_pool[1024];     //Arena for memory allocation, us
 static struct uavcan_protocol_NodeStatus node_status_msg;
 static struct uavcan_protocol_debug_KeyValue key_value_msg;
 
+static config_t *config; 
+static isr_out_t *isr_out; 
+static isr_in_t *isr_in; 
+static uint8_t *ignore_cmds;
+
 //////////////////////////////////////////////////////////////////////////////////////
 
 void dronecan_handle_param_GetSet(CanardInstance* ins, CanardRxTransfer* transfer);
+void dronecan_handle_spinorarraycommand(CanardInstance* ins, CanardRxTransfer* transfer);
 
 bool shouldAcceptTransfer(const CanardInstance* ins,
                           uint64_t* out_data_type_signature,
@@ -39,6 +47,10 @@ bool shouldAcceptTransfer(const CanardInstance* ins,
     *out_data_type_signature = UAVCAN_PROTOCOL_PARAM_GETSET_SIGNATURE;
     return true;
   }
+  if (data_type_id == LOCAL_SPINORARRAYCOMMAND_ID) {
+	  *out_data_type_signature = LOCAL_SPINORARRAYCOMMAND_SIGNATURE;
+	  return true;
+  }
   return false;
 }
 
@@ -47,11 +59,13 @@ bool shouldAcceptTransfer(const CanardInstance* ins,
 void onTransferReceived(CanardInstance* ins, CanardRxTransfer* transfer)
 {
   if (transfer->data_type_id == UAVCAN_PROTOCOL_PARAM_GETSET_ID) {
-    dronecan_handle_param_GetSet(ins, transfer);
+	  dronecan_handle_param_GetSet(ins, transfer);
+  } else if(transfer->data_type_id == LOCAL_SPINORARRAYCOMMAND_ID) {
+	  dronecan_handle_spinorarraycommand(ins, transfer);
   }
 }
 
-void dronecan_init(void)
+void dronecan_init(isr_in_t *isr_in_, isr_out_t *isr_out_, uint8_t *ignore_cmds_)
 {
 
   CanardSTM32CANTimings timings;
@@ -71,7 +85,15 @@ void dronecan_init(void)
              shouldAcceptTransfer,              // Callback, see CanardShouldAcceptTransfer
              NULL);
  
-  canardSetLocalNodeID(&g_canard, (uint8_t)0x42);
+	if(config == NULL) {
+		config = config_get();
+	}
+
+	isr_in = isr_in_;
+	isr_out = isr_out_;
+	ignore_cmds = ignore_cmds_;
+
+  canardSetLocalNodeID(&g_canard, 0x42);
 }
 
 
@@ -119,7 +141,7 @@ void dronecan_publish_NodeStatus(void)
   if(g_uptime_ms <= spin_time + CANARD_SPIN_PERIOD) return;    // rate limiting
   spin_time = g_uptime_ms;
   
-  gpio_toggle(GPIOA, GPIO4);
+  //gpio_toggle(GPIOA, GPIO4);
     
   node_status_msg.uptime_sec = (g_uptime_ms / 1000); 
   node_status_msg.health = UAVCAN_PROTOCOL_NODESTATUS_HEALTH_OK;
@@ -152,17 +174,6 @@ void dronecan_publish_debug_KeyValue(char* key, float value, uint8_t* transfer_i
 			buffer, 
 			len);
 }
-
-parameter_t parameters[] = {
-
-};
-
-parameter_storage_t parameter_storage = {
-	.iq_ref=NONE,
-	.omega_m_ref=NONE,
-	.theta_m_ref=NONE
-};
-
 void dronecan_handle_param_GetSet(CanardInstance* ins, CanardRxTransfer* transfer)
 {
     struct uavcan_protocol_param_GetSetRequest req;
@@ -172,15 +183,9 @@ void dronecan_handle_param_GetSet(CanardInstance* ins, CanardRxTransfer* transfe
 
     parameter_t *p = NULL;
     if (req.name.len != 0) {
-        for (uint16_t i=0; i<ARRAY_SIZE(parameters); i++) {
-            if (req.name.len == strlen(parameters[i].name) &&
-                strncmp((const char *)req.name.data, parameters[i].name, req.name.len) == 0) {
-                p = &parameters[i];
-                break;
-            }
-        }
-    } else if (req.index < ARRAY_SIZE(parameters)) {
-        p = &parameters[req.index];
+	    p = config_get_param_by_name((char*)req.name.data, req.name.len);
+    } else { 
+        p = config_get_param_by_idx(req.index);
     }
     if (p != NULL && req.name.len != 0 && req.value.union_tag == UAVCAN_PROTOCOL_PARAM_VALUE_REAL_VALUE) {
         /*
@@ -189,6 +194,10 @@ void dronecan_handle_param_GetSet(CanardInstance* ins, CanardRxTransfer* transfe
           immediately or can instead store it in memory and save to permanent storage on a
          */
             *(p->value) = req.value.real_value;
+	    //updates internal int config values from external float values just set
+	    config_from_params();
+	    //updates external values to reflecting rounding on int conversion
+	    config_to_params();
     }
 
     /*
@@ -199,11 +208,11 @@ void dronecan_handle_param_GetSet(CanardInstance* ins, CanardRxTransfer* transfe
     	if (p != NULL) {
             pkt.value.real_value = *p->value;
 	    pkt.value.union_tag = UAVCAN_PROTOCOL_PARAM_VALUE_REAL_VALUE;
-		pkt.name.len = strlen(p->name);
-		strcpy((char *)pkt.name.data, p->name);
         } else {
 		pkt.value.union_tag = UAVCAN_PROTOCOL_PARAM_VALUE_EMPTY;
 	}
+	pkt.name.len = strlen(p->name);
+	strcpy((char *)pkt.name.data, p->name);
 	pkt.default_value.union_tag = UAVCAN_PROTOCOL_PARAM_VALUE_EMPTY;
 	pkt.min_value.union_tag = UAVCAN_PROTOCOL_PARAM_NUMERICVALUE_EMPTY;
 	pkt.max_value.union_tag = UAVCAN_PROTOCOL_PARAM_NUMERICVALUE_EMPTY;
@@ -221,4 +230,34 @@ void dronecan_handle_param_GetSet(CanardInstance* ins, CanardRxTransfer* transfe
                            CanardResponse,
                            &buffer[0],
                            total_size);
+}
+	 
+void dronecan_handle_spinorarraycommand(CanardInstance *ins, CanardRxTransfer *transfer) {
+	struct local_SPINORArrayCommand arrcmd;
+	if(local_SPINORArrayCommand_decode(transfer, &arrcmd)) {
+		return;
+	}
+	if(arrcmd.commands.len < config->actuator_index) {
+	       return;
+	}	       
+	if(*ignore_cmds) {
+		return;
+	}
+	switch(arrcmd.commands.data[config->actuator_index].command_type) {
+		case LOCAL_SPINORCOMMAND_COMMAND_TYPE_TORQUE:
+			isr_in->iq_ref = arrcmd.commands.data[config->actuator_index].command_value;
+			isr_in->omega_m_ref = NONE;
+			isr_in->theta_m_ref = NONE;
+			break;
+		case LOCAL_SPINORCOMMAND_COMMAND_TYPE_VEL:
+			isr_in->iq_ref = NONE;
+			isr_in->omega_m_ref = arrcmd.commands.data[config->actuator_index].command_value;
+			isr_in->theta_m_ref = NONE;
+			break;
+		case LOCAL_SPINORCOMMAND_COMMAND_TYPE_POS:
+			isr_in->iq_ref = NONE;
+			isr_in->omega_m_ref = NONE;
+			isr_in->theta_m_ref= arrcmd.commands.data[config->actuator_index].command_value;
+			break;
+	}
 }

@@ -51,6 +51,8 @@ static void CSM_exit_HOMING(CSM_t *self) {
 static void CSM_enter_ARMED(CSM_t *self) {
 	self->isr_in->foc_control_mode = FOC_CONTROL_MODE_IDQ;
 	self->isr_in->iq_ref = NONE;
+	self->isr_in->omega_m_ref = NONE;
+	self->isr_in->theta_m_ref = NONE;
 }
 static void CSM_enter_DISARMED(CSM_t *self) {
 	self->isr_in->foc_control_mode = FOC_CONTROL_MODE_STOP;
@@ -101,10 +103,10 @@ void CSM_dispatch_event(CSM_t *self, ControllerEvent_t event) {
 			} 
 			//stall-based homing sm
 			else if(self->state == CONTROLLERSTATE_HOMING) {
-				if(self->isr_out->iq < (int32_t)(CAL_HOME_THRESHOLD_TORQUE/TORQUE_IDQ_LSB)) {
+				if(self->isr_out->iq < 200) {
 					self->t_start = event.t;
 				}
-				if(event.t > self->t_start+CAL_HOME_THRESHOLD_TIME) {
+				if(event.t > self->t_start+500) {
 					CSM_exit_HOMING(self);
 					CSM_enter_ARMED(self);
 					self->state = CONTROLLERSTATE_ARMED;

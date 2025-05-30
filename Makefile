@@ -21,6 +21,8 @@ CFILES += lib/dsdl/dsdl_generated/src/uavcan.protocol.NodeStatus.c
 CFILES += lib/dsdl/dsdl_generated/src/uavcan.protocol.debug.KeyValue.c
 CFILES += lib/dsdl/dsdl_generated/src/uavcan.protocol.param.GetSet_req.c
 CFILES += lib/dsdl/dsdl_generated/src/uavcan.protocol.param.GetSet_res.c
+CFILES += lib/dsdl/dsdl_generated/src/local.SPINORArrayCommand.c
+CFILES += lib/dsdl/dsdl_generated/src/local.SPINORCommand.c
 
 # set linker script to our custom one that creates a config section in flas
 LINKERSCRIPT = stm32f072cbt6_configsection.ld

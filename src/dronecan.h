@@ -15,7 +15,7 @@
 
 #define UNIQUE_ID_LENGTH_BYTES                                      16
 
-void dronecan_init(void);
+void dronecan_init(isr_in_t *isr_in_, isr_out_t *isr_out_, uint8_t *ignore_cmds);
 void dronecan_transmit(void);
 void dronecan_receive(void);
 void dronecan_publish_NodeStatus(void);

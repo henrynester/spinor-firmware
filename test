@@ -1,0 +1,1 @@
+broadcast(dronecan.thirdparty.local.SPINORArrayCommand(commands = [dronecan.thirdparty.local.SPINORCommand(command_type=1, command_value=-8000)]))

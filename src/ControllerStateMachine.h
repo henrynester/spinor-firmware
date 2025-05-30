@@ -53,5 +53,19 @@ typedef struct {
 	uint8_t homing_valid;
 } CSM_t;
 
+typedef enum {
+	ERROR_OK,
+	ERROR_RECEIVE_TIMEOUT,
+	ERROR_FOC_DEADLINE_MISSED,
+	ERROR_POS_VEL_DEADLINE_MISSED,
+	ERROR_IABC_HIGH,
+	ERROR_VBUS_LOW,
+	ERROR_VBUS_HIGH,
+	ERROR_TMTR_HIGH,
+	ERROR_TFET_HIGH,
+	ERROR_VEL_HIGH,
+	ERROR_ENCODER,
+} error_t;
+
 void CSM_init(CSM_t *self, isr_in_t *isr_in, isr_out_t *isr_out);
 void CSM_dispatch_event(CSM_t *self, ControllerEvent_t event);

@@ -158,7 +158,7 @@ void dma1_channel1_isr(void) {
 		if(factor > 0x7800) {
 			factor = 0x7800;
 		}
-		omega_m_err -= (omega_m_err * factor) / 0x8000;
+		//omega_m_err -= (omega_m_err * factor) / 0x8000;
 		int32_t omega_m_tau_ref = -FMUL(VEL_KP*OMEGA_M_LSB/TORQUE_IDQ_LSB, omega_m_err) - omega_m_err_integral;
 		uint8_t saturated = false;
 		if(omega_m_tau_ref <= TORQUE_MIN_INT) {
@@ -247,6 +247,7 @@ void dma1_channel1_isr(void) {
 	if(_isr_out.t_exec_foc_vel_pos > T_EXEC_FOC_POS_VEL_MAX) {
 		_isr_out.error = ISR_ERROR_POS_VEL_DEADLINE_MISSED;
 		timer_disable_break_main_output(TIM1);
+		gpio_clear(LED_PORT, LED_R);
 	}
 	if(_isr_out.t_exec_foc > T_EXEC_FOC_MAX || adc_late_channel_switch) {
 		_isr_out.error = ISR_ERROR_FOC_DEADLINE_MISSED;
