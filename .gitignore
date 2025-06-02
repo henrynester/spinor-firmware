@@ -3,3 +3,4 @@ bin/
 *.elf
 __pycache__/
 *.swp
+generated.stm32f072cbt6.ld
