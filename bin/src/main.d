@@ -1,26 +1,24 @@
-bin/src/main.o: src/main.c src/dronecan.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.GetNodeInfo_res.h \
- /usr/lib/gcc/arm-none-eabi/12.2.1/include/stdbool.h \
+bin/src/main.o: src/main.c src/flash.h \
  /usr/lib/gcc/arm-none-eabi/12.2.1/include/stdint.h \
  lib/libcanard/canard.h \
  /usr/lib/gcc/arm-none-eabi/12.2.1/include/stddef.h \
+ /usr/lib/gcc/arm-none-eabi/12.2.1/include/stdbool.h \
  /usr/include/newlib/assert.h /usr/include/newlib/_ansi.h \
  /usr/include/newlib/newlib.h /usr/include/newlib/_newlib_version.h \
  /usr/include/newlib/sys/config.h /usr/include/newlib/machine/ieeefp.h \
- /usr/include/newlib/sys/features.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.HardwareVersion.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.NodeStatus.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.SoftwareVersion.h \
- lib/libcanard/canard.h src/isr.h src/foc.h src/adc.h src/encoder.h \
- src/constants.h src/config.h \
+ /usr/include/newlib/sys/features.h src/isr.h src/controller.h \
+ src/encoder.h src/foc.h src/adc.h src/dronecan.h \
+ src/ControllerStateMachine.h src/config.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.GetSet.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.GetSet_req.h \
+ lib/libcanard/canard.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.Value.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.Empty.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.GetSet_res.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.NumericValue.h \
  src/math.h /usr/lib/gcc/arm-none-eabi/12.2.1/include/arm_fp16.h \
- src/pins.h lib/libopencm3/include/libopencm3/stm32/gpio.h \
+ src/constants.h src/pins.h \
+ lib/libopencm3/include/libopencm3/stm32/gpio.h \
  lib/libopencm3/include/libopencm3/cm3/common.h \
  lib/libopencm3/include/libopencm3/stm32/memorymap.h \
  lib/libopencm3/include/libopencm3/stm32/f0/memorymap.h \
@@ -33,121 +31,7 @@ bin/src/main.o: src/main.c src/dronecan.h \
  lib/libopencm3/include/libopencm3/stm32/f0/adc.h \
  lib/libopencm3/include/libopencm3/stm32/common/adc_common_v2.h \
  lib/libopencm3/include/libopencm3/stm32/common/adc_common_v2_single.h \
- src/setup.h src/ControllerStateMachine.h src/flash.h \
- lib/dsdl/dsdl_generated/include/dronecan_msgs.h \
- lib/dsdl/dsdl_generated/include/local.SPINORArrayCommand.h \
- lib/dsdl/dsdl_generated/include/local.SPINORCommand.h \
- lib/dsdl/dsdl_generated/include/uavcan.CoarseOrientation.h \
- lib/dsdl/dsdl_generated/include/uavcan.Timestamp.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.actuator.ArrayCommand.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.actuator.Command.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.actuator.Status.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.ahrs.MagneticFieldStrength.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.ahrs.MagneticFieldStrength2.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.ahrs.RawIMU.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.ahrs.Solution.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.air_data.AngleOfAttack.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.air_data.IndicatedAirspeed.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.air_data.RawAirData.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.air_data.Sideslip.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.air_data.StaticPressure.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.air_data.StaticTemperature.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.air_data.TrueAirspeed.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.camera_gimbal.AngularCommand.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.camera_gimbal.Mode.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.camera_gimbal.GEOPOICommand.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.camera_gimbal.Status.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.device.Temperature.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.esc.RPMCommand.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.esc.RawCommand.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.esc.Status.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.esc.StatusExtended.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.gnss.Auxiliary.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.gnss.ECEFPositionVelocity.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.gnss.Fix.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.gnss.Fix2.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.gnss.RTCMStream.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.hardpoint.Command.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.hardpoint.Status.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.ice.FuelTankStatus.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.ice.reciprocating.CylinderStatus.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.ice.reciprocating.Status.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.indication.BeepCommand.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.indication.LightsCommand.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.indication.SingleLightCommand.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.indication.RGB565.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.power.BatteryInfo.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.power.CircuitStatus.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.power.PrimaryPowerSupplyStatus.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.range_sensor.Measurement.h \
- lib/dsdl/dsdl_generated/include/uavcan.equipment.safety.ArmingStatus.h \
- lib/dsdl/dsdl_generated/include/uavcan.navigation.GlobalNavigationSolution.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.AccessCommandShell.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.AccessCommandShell_req.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.AccessCommandShell_res.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.CANIfaceStats.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.DataTypeKind.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.GetDataTypeInfo.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.GetDataTypeInfo_req.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.GetDataTypeInfo_res.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.GetNodeInfo.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.GetNodeInfo_req.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.GetTransportStats.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.GetTransportStats_req.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.GetTransportStats_res.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.GlobalTimeSync.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.Panic.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.RestartNode.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.RestartNode_req.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.RestartNode_res.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.debug.KeyValue.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.debug.LogLevel.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.debug.LogMessage.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.dynamic_node_id.Allocation.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.dynamic_node_id.server.AppendEntries.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.dynamic_node_id.server.AppendEntries_req.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.dynamic_node_id.server.Entry.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.dynamic_node_id.server.AppendEntries_res.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.dynamic_node_id.server.Discovery.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.dynamic_node_id.server.RequestVote.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.dynamic_node_id.server.RequestVote_req.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.dynamic_node_id.server.RequestVote_res.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.enumeration.Begin.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.enumeration.Begin_req.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.enumeration.Begin_res.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.enumeration.Indication.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.file.BeginFirmwareUpdate.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.file.BeginFirmwareUpdate_req.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.file.Path.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.file.BeginFirmwareUpdate_res.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.file.Delete.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.file.Delete_req.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.file.Delete_res.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.file.Error.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.file.EntryType.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.file.GetDirectoryEntryInfo.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.file.GetDirectoryEntryInfo_req.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.file.GetDirectoryEntryInfo_res.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.file.GetInfo.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.file.GetInfo_req.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.file.GetInfo_res.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.file.Read.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.file.Read_req.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.file.Read_res.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.file.Write.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.file.Write_req.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.file.Write_res.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.param.ExecuteOpcode.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.param.ExecuteOpcode_req.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.param.ExecuteOpcode_res.h \
- lib/dsdl/dsdl_generated/include/uavcan.tunnel.Broadcast.h \
- lib/dsdl/dsdl_generated/include/uavcan.tunnel.Protocol.h \
- lib/dsdl/dsdl_generated/include/uavcan.tunnel.Call.h \
- lib/dsdl/dsdl_generated/include/uavcan.tunnel.Call_req.h \
- lib/dsdl/dsdl_generated/include/uavcan.tunnel.Call_res.h \
- lib/dsdl/dsdl_generated/include/uavcan.tunnel.SerialConfig.h \
- lib/dsdl/dsdl_generated/include/uavcan.tunnel.Targetted.h \
- lib/libopencm3/include/libopencm3/stm32/rcc.h \
+ src/setup.h lib/libopencm3/include/libopencm3/stm32/rcc.h \
  lib/libopencm3/include/libopencm3/stm32/f0/rcc.h \
  lib/libopencm3/include/libopencm3/stm32/common/rcc_common_all.h \
  lib/libopencm3/include/libopencm3/stm32/timer.h \
@@ -165,4 +49,5 @@ bin/src/main.o: src/main.c src/dronecan.h \
  lib/libopencm3/include/libopencm3/cm3/nvic.h \
  lib/libopencm3/include/libopencm3/dispatch/nvic.h \
  lib/libopencm3/include/libopencm3/stm32/f0/nvic.h \
- lib/libopencm3/include/libopencm3/cm3/systick.h
+ lib/libopencm3/include/libopencm3/cm3/systick.h \
+ lib/dsdl/dsdl_generated/include/local.SPINORStatus.h

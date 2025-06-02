@@ -27,4 +27,4 @@ typedef struct {
 } foc_t;
 
 void foc_update(foc_t *foc, adc_results_t *adc_results, encoder_t *encoder);
-void foc_reset(void);
+void foc_reset(foc_t *foc);

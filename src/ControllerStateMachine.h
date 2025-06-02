@@ -34,17 +34,14 @@ typedef enum {
 typedef struct {
 	ControllerEventType_t type;
 	uint32_t t;
-	union data_t {
-		uint8_t potato;
-		int16_t soup;
-	} data;
 } ControllerEvent_t;
 
 typedef struct {
 	ControllerState_t state;
+	uint8_t error;	
 	ControllerSubstate_t substate;
-	isr_in_t *isr_in;
-	isr_out_t *isr_out;
+	controller_in_t *isr_in;
+	controller_out_t *isr_out;
 	config_t *config;
 	uint32_t t_start;
 	int32_t offset_accumulate;
@@ -53,19 +50,6 @@ typedef struct {
 	uint8_t homing_valid;
 } CSM_t;
 
-typedef enum {
-	ERROR_OK,
-	ERROR_RECEIVE_TIMEOUT,
-	ERROR_FOC_DEADLINE_MISSED,
-	ERROR_POS_VEL_DEADLINE_MISSED,
-	ERROR_IABC_HIGH,
-	ERROR_VBUS_LOW,
-	ERROR_VBUS_HIGH,
-	ERROR_TMTR_HIGH,
-	ERROR_TFET_HIGH,
-	ERROR_VEL_HIGH,
-	ERROR_ENCODER,
-} error_t;
-
-void CSM_init(CSM_t *self, isr_in_t *isr_in, isr_out_t *isr_out);
+void CSM_init(CSM_t *self, controller_in_t *isr_in, controller_out_t *isr_out);
 void CSM_dispatch_event(CSM_t *self, ControllerEvent_t event);
+void CSM_led_indicator(CSM_t *self, uint32_t t);

@@ -176,3 +176,6 @@ void encoder_pll_compute_next(encoder_t *encoder) {
 	encoder->cos_theta_e = fcos(theta_e); 
 	encoder->sin_theta_e = fsin(theta_e);
 }
+
+void encoder_init(encoder_t *self) {
+}

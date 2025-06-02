@@ -1,16 +1,14 @@
+#include "flash.h"
+#include "isr.h"
 #include "dronecan.h"
 #include "constants.h"
 #include "config.h"
 #include "pins.h"
 #include "setup.h"
 #include "math.h"
-#include "isr.h"
 #include "ControllerStateMachine.h"
-#include "flash.h"
 
 #include "libcanard/canard.h"
-#include "dsdl/dsdl_generated/include/dronecan_msgs.h"
-#include "uavcan.protocol.debug.KeyValue.h"
 
 #include "libopencm3/stm32/rcc.h" 
 #include "libopencm3/stm32/gpio.h"
@@ -20,76 +18,68 @@
 #include "libopencm3/stm32/spi.h"
 #include "libopencm3/cm3/nvic.h"
 #include "libopencm3/cm3/systick.h"
+
+#include "local.SPINORStatus.h"
 					
-
-//main's copy			  
-isr_out_t isr_out;
-isr_in_t isr_in;
-
-CSM_t controller;
-uint8_t ignore_cmds;
+CSM_t csm;
 
 int main(void) {
 	setup();
-	if(config_load()) {
+	if(config_load() != FLASH_ERROR_OK) {
 		config_defaults();
 	}
-	dronecan_init(&isr_in, &isr_out, &ignore_cmds);
-	//config_apply(NULL, NULL); //very impotant
+	dronecan_init((controller_in_t *)&controller.in);
 	
-	CSM_init(&controller, &isr_in, &isr_out);
+	CSM_init(&csm, (controller_in_t *)&controller.in, (controller_out_t *)&controller.out);
 	//ISR will start running at 8kHz once timer starts
 	start_timers();
+
+	//main loop
 	while(1) {
+		//send all queued messages
+		dronecan_transmit();
+		//receive just one message, handler runs
+		dronecan_receive();
+		//wait for next ISR run to complete, then copy input/output port structs
+		controller_rendezvous_sync_inout((controller_t*)&controller);
+		//send periodic messages. rate-limiting in fn
+		dronecan_publish_NodeStatus();
+		dronecan_publish_SPINORStatus((controller_out_t *)&controller.out, &csm);
+		dronecan_publish_SPINORFeedback((controller_out_t*)&controller.out);
+
+		//200Hz loop
 		static uint32_t t_loop=0;
 		if(g_uptime_ms > t_loop+5) {
 			t_loop = g_uptime_ms;
-
-			sync_isr_out(&isr_out);
+			//see if any received message would trigger a FSM event
+			ControllerEventType_t dronecan_event = dronecan_event_pop();
+			if(dronecan_event != EVENT_DEFAULT) {
+				ControllerEvent_t event = {
+					.type = dronecan_event,
+					.t = g_uptime_ms
+				};
+				CSM_dispatch_event(&csm, event);
+			}
+			//safety checks
+			uint8_t err = 
+			   controller_slow_safety_checks((controller_t*)&controller);
+			if(err != LOCAL_SPINORSTATUS_ERROR_OK) {
+				//fire an error event in the FSM if there is a safety error
+				csm.error = err;
+				ControllerEvent_t err_event = {
+					.type = EVENT_ERROR,
+					.t = g_uptime_ms
+				};
+				CSM_dispatch_event(&csm, err_event);
+			}
+			//periodic FSM event, used for timeout-triggered transitions
 			ControllerEvent_t event = {
 				.type = EVENT_DEFAULT,
 				.t = t_loop
 			};
-			if(isr_out.error != ISR_ERROR_OK) {
-				event.type = EVENT_ERROR;
-			}
-			CSM_dispatch_event(&controller, event);
-			if(controller.state == CONTROLLERSTATE_ARMED) {
-				ignore_cmds = false;
-			} else {
-				ignore_cmds = false;
-			}
-			sync_isr_in(&isr_in);
+			CSM_dispatch_event(&csm, event);
 
-			static uint8_t temp001=0;
-			dronecan_publish_debug_KeyValue("id", isr_out.id, &temp001);
-			static uint8_t temp002=0;
-			dronecan_publish_debug_KeyValue("iq", isr_out.iq, &temp002);
-			static uint8_t temp011=0;
-			dronecan_publish_debug_KeyValue("vd", isr_out.vd, &temp011);
-			static uint8_t temp012=0;
-			dronecan_publish_debug_KeyValue("vq", isr_out.vq, &temp012);
-			static uint8_t temp003=0;
-			dronecan_publish_debug_KeyValue("ia", isr_out.ia, &temp003);
-			static uint8_t temp004=0;
-			dronecan_publish_debug_KeyValue("ib", isr_out.ib, &temp004);
-			static uint8_t temp005=0;
-			dronecan_publish_debug_KeyValue("ic", isr_out.ic, &temp005);
-			static uint8_t temp013=0;
-			dronecan_publish_debug_KeyValue("va", isr_out.va, &temp013);
-			static uint8_t temp014=0;
-			dronecan_publish_debug_KeyValue("vb", isr_out.vb, &temp014);
-			static uint8_t temp015=0;
-			dronecan_publish_debug_KeyValue("vc", isr_out.vc, &temp015);
-			static uint8_t temp020=0;
-			dronecan_publish_debug_KeyValue("tm", isr_out.theta_m, &temp020);
-			static uint8_t temp021=0;
-			dronecan_publish_debug_KeyValue("om", isr_out.omega_m, &temp021);
-			static uint8_t temp022=0;
-			dronecan_publish_debug_KeyValue("ir", isr_out.iq_ref_combined, &temp022);
+			CSM_led_indicator(&csm, t_loop);
 		}
-		dronecan_publish_NodeStatus();
-		dronecan_transmit();
-		dronecan_receive();
 	}
 }

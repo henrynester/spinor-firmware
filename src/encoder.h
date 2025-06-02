@@ -28,6 +28,7 @@ typedef struct {
 	int16_t theta_e_offset;
 } encoder_t;
 
+void encoder_init(encoder_t *encoder);
 void encoder_pll_load_next(encoder_t *encoder);
 void encoder_read_angle(void);
 void encoder_read_status(encoder_t *encoder);

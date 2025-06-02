@@ -122,7 +122,7 @@ static void _inverse_park_inject_harmonic_three(
 	*out_pwmc = CONSTRAIN((v_center+vc)/0x40, 0, PWM_MAX);
 }
 
-void foc_reset(void) {
+void foc_reset(foc_t *foc) {
 	_id_integral = 0;
 	_iq_integral = 0;
 }

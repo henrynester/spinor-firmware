@@ -1,26 +1,22 @@
-bin/src/dronecan.o: src/dronecan.c src/dronecan.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.GetNodeInfo_res.h \
- /usr/lib/gcc/arm-none-eabi/12.2.1/include/stdbool.h \
- /usr/lib/gcc/arm-none-eabi/12.2.1/include/stdint.h \
+bin/src/dronecan.o: src/dronecan.c src/dronecan.h src/controller.h \
+ src/flash.h /usr/lib/gcc/arm-none-eabi/12.2.1/include/stdint.h \
  lib/libcanard/canard.h \
  /usr/lib/gcc/arm-none-eabi/12.2.1/include/stddef.h \
+ /usr/lib/gcc/arm-none-eabi/12.2.1/include/stdbool.h \
  /usr/include/newlib/assert.h /usr/include/newlib/_ansi.h \
  /usr/include/newlib/newlib.h /usr/include/newlib/_newlib_version.h \
  /usr/include/newlib/sys/config.h /usr/include/newlib/machine/ieeefp.h \
- /usr/include/newlib/sys/features.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.HardwareVersion.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.NodeStatus.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.SoftwareVersion.h \
- lib/libcanard/canard.h src/isr.h src/foc.h src/adc.h src/encoder.h \
- src/flash.h src/config.h \
+ /usr/include/newlib/sys/features.h src/encoder.h src/foc.h src/adc.h \
+ src/ControllerStateMachine.h src/config.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.GetSet.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.GetSet_req.h \
+ lib/libcanard/canard.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.Value.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.Empty.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.GetSet_res.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.NumericValue.h \
  src/math.h /usr/lib/gcc/arm-none-eabi/12.2.1/include/arm_fp16.h \
- src/thermistor.h src/constants.h \
+ src/isr.h src/thermistor.h src/constants.h \
  lib/libopencm3/include/libopencm3/stm32/rcc.h \
  lib/libopencm3/include/libopencm3/cm3/common.h \
  lib/libopencm3/include/libopencm3/stm32/memorymap.h \
@@ -39,8 +35,16 @@ bin/src/dronecan.o: src/dronecan.c src/dronecan.h \
  /usr/include/newlib/machine/_default_types.h \
  /usr/include/newlib/sys/lock.h /usr/include/newlib/sys/cdefs.h \
  /usr/include/newlib/sys/string.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.GetNodeInfo.h \
- lib/dsdl/dsdl_generated/include/uavcan.protocol.GetNodeInfo_req.h \
+ lib/dsdl/dsdl_generated/include/uavcan.protocol.NodeStatus.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.debug.KeyValue.h \
+ lib/dsdl/dsdl_generated/include/uavcan.protocol.param.ExecuteOpcode.h \
+ lib/dsdl/dsdl_generated/include/uavcan.protocol.param.ExecuteOpcode_req.h \
+ lib/dsdl/dsdl_generated/include/uavcan.protocol.param.ExecuteOpcode_res.h \
+ lib/dsdl/dsdl_generated/include/uavcan.equipment.safety.ArmingStatus.h \
  lib/dsdl/dsdl_generated/include/local.SPINORArrayCommand.h \
- lib/dsdl/dsdl_generated/include/local.SPINORCommand.h
+ lib/dsdl/dsdl_generated/include/local.SPINORCommand.h \
+ lib/dsdl/dsdl_generated/include/local.SPINORFeedback.h \
+ lib/dsdl/dsdl_generated/include/local.SPINORStatus.h \
+ lib/dsdl/dsdl_generated/include/local.SPINORExecuteOpcode.h \
+ lib/dsdl/dsdl_generated/include/local.SPINORExecuteOpcode_req.h \
+ lib/dsdl/dsdl_generated/include/local.SPINORExecuteOpcode_res.h

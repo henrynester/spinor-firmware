@@ -53,4 +53,8 @@
 //convert safety limits
 #define SAFETY_IABC_MAX_INT (uint16_t)( (uint16_t)(SAFETY_IABC_MAX/IABC_LSB) + 0x3000/2)
 #define SAFETY_IABC_MIN_INT (uint16_t)(-(uint16_t)(SAFETY_IABC_MAX/IABC_LSB) + 0x3000/2)
-
+#define SAFETY_VBUS_MIN_INT (uint16_t)(SAFETY_VBUS_MIN / VBUS_LSB)
+#define SAFETY_VBUS_MAX_INT (uint16_t)(SAFETY_VBUS_MAX / VBUS_LSB)
+#define SAFETY_VEL_MAX_INT (uint16_t)(SAFETY_VEL_MAX / OMEGA_M_LSB)
+#define SAFETY_TFET_MAX_INT (uint16_t)2178 //see thermistor LUT, ~40C
+#define SAFETY_TMTR_MAX_INT (uint16_t)1432 //see thermistor LUT, ~70C

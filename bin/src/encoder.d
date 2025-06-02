@@ -29,7 +29,8 @@ bin/src/encoder.o: src/encoder.c src/encoder.h \
  lib/libopencm3/include/libopencm3/stm32/f0/adc.h \
  lib/libopencm3/include/libopencm3/stm32/common/adc_common_v2.h \
  lib/libopencm3/include/libopencm3/stm32/common/adc_common_v2_single.h \
- src/isr.h lib/libopencm3/include/libopencm3/stm32/spi.h \
+ src/isr.h src/controller.h src/flash.h lib/libcanard/canard.h \
+ lib/libopencm3/include/libopencm3/stm32/spi.h \
  lib/libopencm3/include/libopencm3/stm32/f0/spi.h \
  lib/libopencm3/include/libopencm3/stm32/common/spi_common_v2.h \
  lib/libopencm3/include/libopencm3/stm32/common/spi_common_all.h

@@ -19,8 +19,8 @@ float thermistor_temperature_from_adc(uint16_t adc) {
 		}
 	}
 	//handle being past both ends of table
-	if(i==0) return 0.0;
-	if(i==NTC_LUT_LEN) return 100.0;
+	if(i==0) return 0;
+	if(i==NTC_LUT_LEN) return 100;
 	//inside the table. interpolate
 	return 10.0*((float)i -  
 		((float)(adc-ntc_lut[i]) / (float)(ntc_lut[i-1]-ntc_lut[i])));

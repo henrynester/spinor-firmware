@@ -6,8 +6,7 @@ bin/src/flash.o: src/flash.c src/flash.h \
  /usr/include/newlib/assert.h /usr/include/newlib/_ansi.h \
  /usr/include/newlib/newlib.h /usr/include/newlib/_newlib_version.h \
  /usr/include/newlib/sys/config.h /usr/include/newlib/machine/ieeefp.h \
- /usr/include/newlib/sys/features.h src/isr.h src/foc.h src/adc.h \
- src/encoder.h src/config.h \
+ /usr/include/newlib/sys/features.h src/config.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.GetSet.h \
  lib/dsdl/dsdl_generated/include/uavcan.protocol.param.GetSet_req.h \
  lib/libcanard/canard.h \
