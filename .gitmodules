@@ -1,3 +1,6 @@
 [submodule "lib/dsdl"]
 	path = lib/dsdl
 	url = https://github.com/henrynester/dsdl.git
+[submodule "lib/libopencm3"]
+	path = lib/libopencm3
+	url = https://github.com/libopencm3/libopencm3.git
