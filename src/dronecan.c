@@ -431,6 +431,9 @@ void dronecan_publish_SPINORStatus(controller_out_t* controller_output_port,
 	status_msg.v_bus = controller_output_port->v_bus * VBUS_LSB;
 	status_msg.error = csm->error;
 	status_msg.armed = (csm->state == CONTROLLERSTATE_ARMED) ? true : false;	
+	status_msg.homed = (csm->homing_valid) ? true : false;
+	status_msg.state = csm->state;
+	status_msg.agc = controller_output_port->agc;
 
 	uint8_t buffer[LOCAL_SPINORSTATUS_MAX_SIZE];    
 	static uint8_t transfer_id = 0;
