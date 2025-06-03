@@ -166,7 +166,7 @@ else
 	$(Q)(echo "halt; program $(realpath $(*).elf) verify reset" | nc -4 localhost 4444 2>/dev/null) || \
 		$(OOCD) -f $(OOCD_FILE) \
 		-c "program $(realpath $(*).elf) verify reset exit" \
-		$(NULL)
+		>/dev/null 2>/dev/null	
 endif
 
 openocd:

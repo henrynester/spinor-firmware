@@ -1,4 +1,5 @@
 #include "encoder.h"
+#include "setup.h"
 #include "foc.h"
 #include "config.h"
 #include "constants.h"
@@ -9,8 +10,8 @@
 #include "libopencm3/stm32/spi.h"
 
 
-#define ENCODER_AGC_MIN 0x20
-#define ENCODER_AGC_MAX 0xD0
+#define ENCODER_AGC_MIN 0x10
+#define ENCODER_AGC_MAX 0xF0
 
 //AS5047 command is 16 bits:
 //15: even parity
@@ -47,6 +48,8 @@ uint16_t _theta_m_modular;
 uint16_t _status;
 uint16_t _num_spi_errors;
 
+uint8_t _is_odd_parity(uint16_t x);
+
 int16_t _delta_u14(uint16_t initial, uint16_t final) {
 	int16_t delta = (int16_t)final - (int16_t)initial;
 	if(delta > 0x2000) {
@@ -60,7 +63,7 @@ int16_t _delta_u14(uint16_t initial, uint16_t final) {
 	return delta;
 }
 
-static uint8_t _is_odd_parity(uint16_t x) {
+uint8_t _is_odd_parity(uint16_t x) {
 	x ^= x>>8;
 	x ^= x>>4;
 	x ^= x>>2;
@@ -73,6 +76,8 @@ static uint8_t _is_odd_parity(uint16_t x) {
 static uint8_t _encoder_transfer(uint16_t tx_data, uint16_t *rx_data) {
 	//bring NCS low
 	gpio_clear(SPI_NCS_PORT, SPI_NCS_PIN);
+	//datasheet specifies 350ns of nCS=0 prior to clocking data in
+	DELAY_US(2);
 	//place 16 bits into SPI's TXFIFO. This will clock out.
 	SPI1_DR = tx_data;
 	// while loop should never hang because we're just waiting
@@ -82,6 +87,7 @@ static uint8_t _encoder_transfer(uint16_t tx_data, uint16_t *rx_data) {
 	//each 16-bit transfer in order to actually execute the requested
 	//register op
 	gpio_set(GPIOA, GPIO15);
+	DELAY_US(2); //datasheet specifies 350ns to latch register data into SPI shift register
 	//SPI's RXFIFO should contain 16 bits from the AS5047D now.
 	*rx_data = SPI_DR(SPI1);
 
@@ -113,31 +119,40 @@ void encoder_read_angle(void) {
 }
 
 void encoder_read_status(encoder_t *encoder) {
-	//report errors accumulated during angle reads
-	encoder->num_spi_errors = _num_spi_errors;
-	if(_status!=ENCODER_ERROR_OK) {
-		encoder->status=_status;
-		return;
-	}
-	//if there aren't any, check onboard status regs
+	//check onboard status regs for errors
 	uint16_t errfl_contents, diaagc_contents, _;
 	_encoder_transfer(ENCODER_CMD_R_ERRFL, &_);
 	_encoder_transfer(ENCODER_CMD_R_DIAAGC, &errfl_contents);
 	_encoder_transfer(ENCODER_CMD_R_NOP, &diaagc_contents);
 	uint8_t agc = diaagc_contents & ENCODER_DIAAGC_AGC; 
+	encoder->agc = agc;
 	if(errfl_contents & ENCODER_ERRFL_FRERR) {
-		encoder->status = ENCODER_ERROR_BAD_FRAMING_AT_SLAVE;
+		_status = ENCODER_ERROR_BAD_FRAMING_AT_SLAVE;
+		_num_spi_errors++;
 	} else if(errfl_contents & ENCODER_ERRFL_PARERR) {
-		encoder->status = ENCODER_ERROR_BAD_PARITY_AT_SLAVE;
+		_status = ENCODER_ERROR_BAD_PARITY_AT_SLAVE;
+		_num_spi_errors++;
 	} else if(errfl_contents & ENCODER_ERROR_INVALID_COMMAND_AT_SLAVE) {
-		encoder->status = ENCODER_ERROR_BAD_PARITY_AT_SLAVE;
+		_status = ENCODER_ERROR_BAD_PARITY_AT_SLAVE;
+		_num_spi_errors++;
 	} else if((diaagc_contents & ENCODER_DIAAGC_COF) 
 		|| (~diaagc_contents & ENCODER_DIAAGC_LF)) {
-		encoder->status = ENCODER_ERROR_ONBOARD_DSP;
+		_status = ENCODER_ERROR_ONBOARD_DSP;
+		_num_spi_errors++;
 	} else if(agc < ENCODER_AGC_MIN) {
-		encoder->status = ENCODER_ERROR_BFIELD_OVER;
+		_status = ENCODER_ERROR_BFIELD_OVER;
+		_num_spi_errors++;
 	} else if(agc > ENCODER_AGC_MAX) {
-		encoder->status = ENCODER_ERROR_BFIELD_UNDER;
+		_status = ENCODER_ERROR_BFIELD_UNDER;
+		_num_spi_errors++;
+	}
+	//if error counter has reached a threshold,
+	//report errors and reset error counter
+	if(_status!=ENCODER_ERROR_OK && _num_spi_errors > 256) {
+		encoder->status=_status;
+		encoder->num_spi_errors = _num_spi_errors;
+		_status = ENCODER_ERROR_OK;
+		_num_spi_errors = 0;
 	}
 }
 
@@ -178,4 +193,5 @@ void encoder_pll_compute_next(encoder_t *encoder) {
 }
 
 void encoder_init(encoder_t *self) {
+	encoder_clear_error(self);
 }

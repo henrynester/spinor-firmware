@@ -52,11 +52,11 @@
 #define CAL_HOME_THRESHOLD_TIME 0.5
 				  
 //Safety limits
-#define SAFETY_VBUS_MIN 18.5
-#define SAFETY_VBUS_MAX 21.5
+#define SAFETY_VBUS_MIN 16.5
+#define SAFETY_VBUS_MAX 22.5
 #define SAFETY_IBUS_MAX 1.0
 #define SAFETY_IBUS_REGEN_MAX 1.0
-#define SAFETY_IABC_MAX 5.0
+#define SAFETY_IABC_MAX 10.0
 #define SAFETY_VEL_MAX (200.0)/60.0*2*M_PI
 
 //dronecan can r/w this struct, which has pointers

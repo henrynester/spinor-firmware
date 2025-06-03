@@ -1,6 +1,7 @@
 #include "ControllerStateMachine.h"
 #include "pins.h"
 #include "libopencm3/stm32/gpio.h"
+#include "libopencm3/stm32/timer.h"
 #include "constants.h"
 #include "flash.h"
 #include "local.SPINORStatus.h"
@@ -55,15 +56,22 @@ static void CSM_exit_HOMING(CSM_t *self) {
 }
 static void CSM_enter_ARMED(CSM_t *self) {
 	self->isr_in->foc_control_mode = FOC_CONTROL_MODE_IDQ;
-	self->isr_in->iq_ref = NONE;
-	self->isr_in->omega_m_ref = NONE;
-	self->isr_in->theta_m_ref = NONE;
+	self->isr_in->control_mode = CONTROL_MODE_TORQUE;
+	self->isr_in->iq_ref = 0;
+	self->isr_in->omega_m_ref = 0;
+	self->isr_in->theta_m_ref = 0;
 }
 static void CSM_enter_DISARMED(CSM_t *self) {
 	self->isr_in->foc_control_mode = FOC_CONTROL_MODE_STOP;
+	self->isr_in->clear_errors_flag = false; //allow ISR to report errors once more
 }
 static void CSM_enter_DISARMED_ERROR(CSM_t *self) {
 	self->isr_in->foc_control_mode = FOC_CONTROL_MODE_STOP;
+	if(self->error == LOCAL_SPINORSTATUS_ERROR_ENCODER_SPI ||
+			self->error == LOCAL_SPINORSTATUS_ERROR_ENCODER_B) {
+		self->homing_valid = false; //encoder may have lost tracking, must home again
+	}
+	self->isr_in->clear_errors_flag = true; //clear sticky errors in ISR, they'll remain in the csm.error sticky
 }
 void CSM_dispatch_event(CSM_t *self, ControllerEvent_t event) {
 	switch(event.type) {
@@ -94,8 +102,8 @@ void CSM_dispatch_event(CSM_t *self, ControllerEvent_t event) {
 							self->t_start = event.t;
 						} else {
 							CSM_exit_CALIBRATE_ENCODER(self);
-							CSM_enter_ARMED(self);
-							self->state = CONTROLLERSTATE_ARMED;
+							CSM_enter_DISARMED(self);
+							self->state = CONTROLLERSTATE_DISARMED;
 							self->substate = CONTROLLERSUBSTATE_NULL;
 						}
 						break;
@@ -118,12 +126,12 @@ void CSM_dispatch_event(CSM_t *self, ControllerEvent_t event) {
 				//must maintain stall torque threshold for a time to avoid noise ending the home sequence early 
 				if(event.t > self->t_start+500) {
 					CSM_exit_HOMING(self);
-					CSM_enter_ARMED(self);
-					self->state = CONTROLLERSTATE_ARMED;
+					CSM_enter_DISARMED(self);
+					self->state = CONTROLLERSTATE_DISARMED;
 				}
 			} else if(self->state == CONTROLLERSTATE_ARMED) {
 				//arming message timeout causes an error 
-				if(event.t > self->t_start+500) {
+				if(event.t > self->t_start+1000) {
 					self->error = LOCAL_SPINORSTATUS_ERROR_COMMAND_TIMEOUT;
 					CSM_enter_DISARMED_ERROR(self);
 					self->state = CONTROLLERSTATE_DISARMED_ERROR;
@@ -135,7 +143,7 @@ void CSM_dispatch_event(CSM_t *self, ControllerEvent_t event) {
 				self->state = CONTROLLERSTATE_DISARMED;
 				self->substate = CONTROLLERSUBSTATE_NULL;
 
-				if(self->config->theta_e_offset == NONE) {
+				/*if(self->config->theta_e_offset == NONE) {
 					CSM_enter_CALIBRATE_ENCODER(self);
 					CSM_enter_MOVE_B(self);
 					self->state = CONTROLLERSTATE_CALIBRATE_ENCODER;
@@ -144,7 +152,7 @@ void CSM_dispatch_event(CSM_t *self, ControllerEvent_t event) {
 				} else {
 					CSM_enter_HOMING(self);
 					self->state = CONTROLLERSTATE_HOMING;
-				}
+				}*/
 			}
 			break;
 		case EVENT_ERROR:
@@ -154,22 +162,38 @@ void CSM_dispatch_event(CSM_t *self, ControllerEvent_t event) {
 			}
 			break;
 		case EVENT_DISARM:
-			//disarm rx will clear errors
-			if(self->state == CONTROLLERSTATE_ARMED || self->state == CONTROLLERSTATE_DISARMED_ERROR) {
+			if(self->state == CONTROLLERSTATE_ARMED) {
+				//CSM_exit_ARMED(self);
 				CSM_enter_DISARMED(self);
 				self->state = CONTROLLERSTATE_DISARMED;
+			}
+			else if(self->state == CONTROLLERSTATE_DISARMED_ERROR) {
+				//CSM_exit_DISARMED_ERROR(self);
+				CSM_enter_DISARMED(self);
+				self->state = CONTROLLERSTATE_DISARMED;
+				//disarm rx will clear errors
 				self->error = LOCAL_SPINORSTATUS_ERROR_OK;
+				timer_disable_break_main_output(TIM1);
 			}
 			break;
 		case EVENT_ARM:
 			//can only arm from disarmed state
 			if(self->state == CONTROLLERSTATE_DISARMED) {
-				CSM_enter_ARMED(self);
-				self->state = CONTROLLERSTATE_ARMED;
-				self->t_start = event.t; //fix race condition
+				//and only if already homed
+				if(self->homing_valid) {
+					CSM_enter_ARMED(self);
+					self->state = CONTROLLERSTATE_ARMED;
+					self->t_start = event.t; //fix race condition
+				}
+				//if not homed yet, do it now
+				else {
+					CSM_enter_HOMING(self);
+					self->state = CONTROLLERSTATE_HOMING;
+					self->t_start = event.t;
+				}
 			}
 			//update time of most recent arm rx for timeout handling
-			if(self->state == CONTROLLERSTATE_ARMED) {
+			else if(self->state == CONTROLLERSTATE_ARMED) {
 				self->t_start = event.t;
 			}
 			break;

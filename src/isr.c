@@ -21,10 +21,11 @@ void sys_tick_handler(void) {
 
 volatile controller_t controller;
 void dma1_channel1_isr(void) {
-	gpio_clear(LED_PORT, LED_B);
+	//gpio_clear(LED_PORT, LED_B);
 	controller_update((controller_t*)&controller);
+	//gpio_set(LED_PORT, LED_B);
+	
 	//clear interrupt flag at end of routine - avoids retriggering
 	//before the ISR completes execution
 	dma_clear_interrupt_flags(DMA1, DMA_CHANNEL1, DMA_TCIF);
-	gpio_set(LED_PORT, LED_B);
 }

@@ -1,4 +1,5 @@
 #include "dronecan.h"
+#include "pins.h"
 
 #include "flash.h"
 #include "config.h"
@@ -30,6 +31,7 @@ static CanardInstance g_canard;                //The library instance
 static uint8_t g_canard_memory_pool[1024];     //Arena for memory allocation, used by the library
 
 static struct uavcan_protocol_NodeStatus node_status_msg;
+static struct local_SPINORStatus status_msg;
 static struct uavcan_protocol_debug_KeyValue key_value_msg;
 
 static config_t *config; 
@@ -131,7 +133,7 @@ void dronecan_init(controller_in_t *isr_in_)
 
 	isr_in = isr_in_;
 
-  canardSetLocalNodeID(&g_canard, 0x42);
+  canardSetLocalNodeID(&g_canard, (uint8_t)(config_get()->node_id));
 }
 
 
@@ -140,12 +142,12 @@ void dronecan_transmit(void)
 
   const CanardCANFrame* txf = canardPeekTxQueue(&g_canard); 
   uint32_t t_start = g_uptime_ms;
-  while(txf && g_uptime_ms < (t_start + 10)) {
+  while(txf && g_uptime_ms < t_start+1) {
     const int tx_res = canardSTM32Transmit(txf);
     if (tx_res < 0) { //Failure - drop the frame and report
 	    while(1);
     }
-    if(tx_res > 0) { //Success: transmit next frame
+    else if(tx_res > 0) { //Success: transmit next frame
       canardPopTxQueue(&g_canard);
       txf = canardPeekTxQueue(&g_canard); 
     }
@@ -155,9 +157,6 @@ void dronecan_transmit(void)
     //will keep trying to transmit what's in the mailbox forever
     //OR, bus utilization is too high and we can't find time to
     //transmit our lower priority message.
-    else {
-	    break;
-    }
   }
 
 }
@@ -165,11 +164,16 @@ void dronecan_transmit(void)
 
 void dronecan_receive(void)
 {
-  CanardCANFrame rx_frame;
-  int res = canardSTM32Receive(&rx_frame);
-  if(res) {
-    canardHandleRxFrame(&g_canard, &rx_frame, g_uptime_ms*1000);
-  } 
+	CanardCANFrame rx_frame;
+	uint32_t t_start = g_uptime_ms;
+			//gpio_clear(LED_PORT, LED_B);
+	while(g_uptime_ms < t_start + 1) {
+		int res = canardSTM32Receive(&rx_frame);
+		if(res) {
+		  canardHandleRxFrame(&g_canard, &rx_frame, g_uptime_ms*1000);
+		} 
+	}
+		  //gpio_set(LED_PORT, LED_B);
 }
 
 void dronecan_publish_NodeStatus(void)
@@ -247,14 +251,20 @@ void dronecan_handle_param_GetSet(CanardInstance* ins, CanardRxTransfer* transfe
     	if (p != NULL) {
             pkt.value.real_value = *p->value;
 	    pkt.value.union_tag = UAVCAN_PROTOCOL_PARAM_VALUE_REAL_VALUE;
+	    pkt.default_value.real_value = p->default_value;
+	    pkt.default_value.union_tag = UAVCAN_PROTOCOL_PARAM_VALUE_REAL_VALUE;
+	    pkt.min_value.real_value = p->min_value;
+	    pkt.min_value.union_tag = UAVCAN_PROTOCOL_PARAM_NUMERICVALUE_REAL_VALUE;
+	    pkt.max_value.real_value = p->max_value;
+	    pkt.max_value.union_tag = UAVCAN_PROTOCOL_PARAM_NUMERICVALUE_REAL_VALUE;
+		pkt.name.len = strlen(p->name);
+		strcpy((char *)pkt.name.data, p->name);
         } else {
 		pkt.value.union_tag = UAVCAN_PROTOCOL_PARAM_VALUE_EMPTY;
+		pkt.default_value.union_tag = UAVCAN_PROTOCOL_PARAM_VALUE_EMPTY;
+		pkt.min_value.union_tag = UAVCAN_PROTOCOL_PARAM_NUMERICVALUE_EMPTY;
+		pkt.max_value.union_tag = UAVCAN_PROTOCOL_PARAM_NUMERICVALUE_EMPTY;
 	}
-	pkt.name.len = strlen(p->name);
-	strcpy((char *)pkt.name.data, p->name);
-	pkt.default_value.union_tag = UAVCAN_PROTOCOL_PARAM_VALUE_EMPTY;
-	pkt.min_value.union_tag = UAVCAN_PROTOCOL_PARAM_NUMERICVALUE_EMPTY;
-	pkt.max_value.union_tag = UAVCAN_PROTOCOL_PARAM_NUMERICVALUE_EMPTY;
 
 
     uint8_t buffer[UAVCAN_PROTOCOL_PARAM_GETSET_RESPONSE_MAX_SIZE];
@@ -280,20 +290,28 @@ void dronecan_handle_SPINORArrayCommand(CanardInstance *ins,
 	if(config->actuator_index >= arrcmd.commands.len) {
 	       return;
 	}	       
+	//only take commands while in ARMED state
+	if(!status_msg.armed) {
+		return;
+	}
+	
 	switch(arrcmd.commands.data[config->actuator_index].command_type) {
 		case LOCAL_SPINORCOMMAND_COMMAND_TYPE_TORQUE:
 			isr_in->iq_ref = 
-				arrcmd.commands.data[config->actuator_index].command;
+				arrcmd.commands.data[config->actuator_index].command
+				/ TORQUE_IDQ_LSB;
 			isr_in->control_mode = CONTROL_MODE_TORQUE;
 			break;
 		case LOCAL_SPINORCOMMAND_COMMAND_TYPE_VELOCITY:
 			isr_in->omega_m_ref 
-				= arrcmd.commands.data[config->actuator_index].command;
+				= arrcmd.commands.data[config->actuator_index].command
+				/ OMEGA_M_LSB;
 			isr_in->control_mode = CONTROL_MODE_VEL;
 			break;
 		case LOCAL_SPINORCOMMAND_COMMAND_TYPE_POSITION:
 			isr_in->theta_m_ref
-				= arrcmd.commands.data[config->actuator_index].command;
+				= arrcmd.commands.data[config->actuator_index].command
+				/ THETA_M_LSB;
 			isr_in->control_mode = CONTROL_MODE_POS;
 			break;
 	}
@@ -344,6 +362,7 @@ void dronecan_handle_equipment_safety_ArmingStatus(CanardInstance* ins,
 	//fire arm or disarm events for FSM to receive
 	if(msg.status == UAVCAN_EQUIPMENT_SAFETY_ARMINGSTATUS_STATUS_FULLY_ARMED) {
 		dronecan_event = EVENT_ARM;
+		//gpio_toggle(LED_PORT, LED_R);
 	} else {
 		dronecan_event = EVENT_DISARM;
 	}
@@ -373,7 +392,7 @@ ControllerEventType_t dronecan_event_pop(void) {
 
 void dronecan_publish_SPINORFeedback(controller_out_t* controller_output_port) {
 	static uint32_t t_last_fb = 0;
-	if(g_uptime_ms <= t_last_fb + 10) return;
+	if(g_uptime_ms <= t_last_fb + 100) return;
 	t_last_fb = g_uptime_ms;
 
 	static struct local_SPINORFeedback msg;
@@ -399,23 +418,23 @@ void dronecan_publish_SPINORStatus(controller_out_t* controller_output_port,
 	if(g_uptime_ms <= t_last_status + 100) return;
 	t_last_status = g_uptime_ms;
 
-	static struct local_SPINORStatus msg;
 
-	msg.T_fet = thermistor_temperature_from_adc(
+	status_msg.T_fet = thermistor_temperature_from_adc(
 		controller_output_port->T_fet);
-	msg.T_mtr = thermistor_temperature_from_adc(
+	status_msg.T_mtr = thermistor_temperature_from_adc(
 		controller_output_port->T_mtr);
-	msg.foc_deadline_perc = 
-		(float)controller_output_port->t_exec_foc / (float)PWM_DT;
-	msg.controller_cpu_perc =
-		(float)controller_output_port->t_exec_controller / (float)CONTROL_DT;
-	msg.v_bus = controller_output_port->v_bus * VBUS_LSB;
-	msg.error = csm->error;
-	msg.armed = (csm->state == CONTROLLERSTATE_ARMED) ? true : false;	
+	status_msg.foc_deadline_perc = 
+	   100.0*(float)controller_output_port->t_exec_foc / ((float)PWM_DT*1.0e6);
+	status_msg.controller_cpu_perc =
+	   100.0*(float)controller_output_port->t_exec_controller 
+	   / ((float)CONTROL_DT*1.0e6);
+	status_msg.v_bus = controller_output_port->v_bus * VBUS_LSB;
+	status_msg.error = csm->error;
+	status_msg.armed = (csm->state == CONTROLLERSTATE_ARMED) ? true : false;	
 
 	uint8_t buffer[LOCAL_SPINORSTATUS_MAX_SIZE];    
 	static uint8_t transfer_id = 0;
-	uint32_t len = local_SPINORStatus_encode(&msg, buffer);
+	uint32_t len = local_SPINORStatus_encode(&status_msg, buffer);
 	canardBroadcast(&g_canard, 
 			LOCAL_SPINORSTATUS_SIGNATURE,
 			LOCAL_SPINORSTATUS_ID,

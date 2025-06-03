@@ -25,9 +25,11 @@ CSM_t csm;
 
 int main(void) {
 	setup();
+	DELAY_US(100000);
 	if(config_load() != FLASH_ERROR_OK) {
 		config_defaults();
 	}
+	controller_init((controller_t *)&controller);
 	dronecan_init((controller_in_t *)&controller.in);
 	
 	CSM_init(&csm, (controller_in_t *)&controller.in, (controller_out_t *)&controller.out);
@@ -41,7 +43,7 @@ int main(void) {
 		//receive just one message, handler runs
 		dronecan_receive();
 		//wait for next ISR run to complete, then copy input/output port structs
-		controller_rendezvous_sync_inout((controller_t*)&controller);
+		controller_rendezvous_sync_inout(&controller);
 		//send periodic messages. rate-limiting in fn
 		dronecan_publish_NodeStatus();
 		dronecan_publish_SPINORStatus((controller_out_t *)&controller.out, &csm);
@@ -54,6 +56,7 @@ int main(void) {
 			//see if any received message would trigger a FSM event
 			ControllerEventType_t dronecan_event = dronecan_event_pop();
 			if(dronecan_event != EVENT_DEFAULT) {
+				//gpio_toggle(LED_PORT, LED_B);
 				ControllerEvent_t event = {
 					.type = dronecan_event,
 					.t = g_uptime_ms

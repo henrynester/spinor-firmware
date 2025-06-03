@@ -26,6 +26,7 @@ typedef struct {
 	uint16_t num_spi_errors;
 	int32_t theta_m_homing_offset;
 	int16_t theta_e_offset;
+	uint8_t agc;
 } encoder_t;
 
 void encoder_init(encoder_t *encoder);

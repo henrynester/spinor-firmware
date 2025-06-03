@@ -29,6 +29,7 @@ typedef struct {
 	int16_t vq_ref;
 	uint16_t theta_e_ref;
 	int32_t theta_m_homing_offset;
+	uint8_t clear_errors_flag;
 } controller_in_t;
 
 typedef struct {
@@ -53,6 +54,7 @@ typedef struct {
 
 	uint16_t n_encoder_err;
 	uint8_t encoder_err;
+	uint8_t encoder_agc;
 
 	uint16_t v_bus;
 	uint16_t T_mtr;
@@ -90,5 +92,5 @@ typedef struct {
 void controller_init(controller_t *self);
 void controller_reset(controller_t *self);
 void controller_update(controller_t *self);
-void controller_rendezvous_sync_inout(controller_t *self);
+void controller_rendezvous_sync_inout(volatile controller_t *self);
 uint8_t controller_slow_safety_checks(controller_t *self);

@@ -187,7 +187,7 @@ void pwm_timer_setup() {
 void spi_setup() {
 	spi_set_master_mode(SPI1);
 	//48MHz div 8 = 6MHz < 10MHz max for the encoder chip
-	spi_set_baudrate_prescaler(SPI1, SPI_CR1_BR_FPCLK_DIV_8);
+	spi_set_baudrate_prescaler(SPI1, SPI_CR1_BR_FPCLK_DIV_16);
 	//SPI mode=1 (CPOL=0, CPHA=1)
 	spi_set_standard_mode(SPI1, 1);
 	spi_set_data_size(SPI1, SPI_CR2_DS_16BIT); 

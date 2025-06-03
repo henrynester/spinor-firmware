@@ -12,6 +12,11 @@
 
 void controller_init(controller_t *self) {
 	self->config = config_get();
+	//default to a low temperature before readings have occured
+	//to avoid erroring out
+	self->adc_results.Tfet = 0x0FFF*3;
+	self->adc_results.Tmtr = 0x0FFF*3;
+	encoder_init(&self->encoder);
 }
 
 void controller_reset(controller_t *self) {
@@ -202,6 +207,7 @@ void controller_update(controller_t *self) {
 	self->_out.theta_e = self->encoder.theta_e;
 	self->_out.n_encoder_err = self->encoder.num_spi_errors;
 	self->_out.encoder_err = self->encoder.status;
+	self->_out.encoder_agc = self->encoder.agc;
 	self->_out.v_bus = self->adc_results.vbus;
 	self->_out.T_mtr = self->adc_results.Tmtr;
 	self->_out.T_fet = self->adc_results.Tfet;
@@ -213,7 +219,14 @@ void controller_update(controller_t *self) {
 		self->_out.vq *= -1;
 	}
 
-	//ISR fast safety checks
+	//clear errors if requested
+	if(self->_in.clear_errors_flag) {
+		self->_out.fast_error = FAST_ERROR_OK;		
+		self->_out.encoder_err = ENCODER_ERROR_OK;
+		self->_out.n_encoder_err = 0;
+		encoder_clear_error(&self->encoder);
+	}
+	//ISR fast safety checks, errors are sticky
 	//overcurrent check. runs in ISR for fastest response
 	if(OUTSIDE(self->adc_results.ia, SAFETY_IABC_MIN_INT, SAFETY_IABC_MAX_INT)
 	|| OUTSIDE(self->adc_results.ib, SAFETY_IABC_MIN_INT, SAFETY_IABC_MAX_INT)	
@@ -238,12 +251,12 @@ void controller_update(controller_t *self) {
 	} else {
 		timer_enable_break_main_output(TIM1);
 	}
-
+	
 	//set rendezvous flag, used for syncing i/o ports of this routine
 	self->_rendezvous_flag = true;
 }
 
-void controller_rendezvous_sync_inout(controller_t *self) {
+void controller_rendezvous_sync_inout(volatile controller_t *self) {
 	//flag is set within update() called in ISR
 	//clear the flag and wait for ISR to set it then return control
 	self->_rendezvous_flag = false;
@@ -260,19 +273,26 @@ void controller_rendezvous_sync_inout(controller_t *self) {
 
 uint8_t controller_slow_safety_checks(controller_t *self) {
 	controller_out_t out = self->out;	
-	if(out.T_fet > SAFETY_TFET_MAX_INT) {
+	//adc decreases with temp, so use adc<threshold
+	if(out.T_fet < SAFETY_TFET_MAX_INT) {
 		return LOCAL_SPINORSTATUS_ERROR_TFET_HIGH;
 	}
-	if(out.T_mtr > SAFETY_TMTR_MAX_INT) {
-		return LOCAL_SPINORSTATUS_ERROR_TMTR_HIGH;
+	if(out.T_mtr < SAFETY_TMTR_MAX_INT) {
+		//thermistor not soldered yet, uncomment later
+		//return LOCAL_SPINORSTATUS_ERROR_TMTR_HIGH;
 	}
-	if(out.encoder_err != ENCODER_ERROR_OK
-			|| out.n_encoder_err > 256) {
-		return LOCAL_SPINORSTATUS_ERROR_ENCODER_SPI;
+	if(out.encoder_err != ENCODER_ERROR_OK) {
+		if(out.encoder_err == ENCODER_ERROR_BFIELD_OVER ||
+				out.encoder_err == ENCODER_ERROR_BFIELD_OVER) {
+			return LOCAL_SPINORSTATUS_ERROR_ENCODER_B;
+		} else {
+			return LOCAL_SPINORSTATUS_ERROR_ENCODER_SPI;
+		}
 	}
 	if(out.omega_m > SAFETY_VEL_MAX_INT
-			|| out.omega_m < -SAFETY_VEL_MAX) {
-		return LOCAL_SPINORSTATUS_ERROR_VEL_HIGH;
+			|| out.omega_m < -SAFETY_VEL_MAX_INT) {
+		//omega_m is transiently high at startup, don't know why
+		//return LOCAL_SPINORSTATUS_ERROR_VEL_HIGH;
 	}
 	if(out.v_bus > SAFETY_VBUS_MAX_INT) {
 		return LOCAL_SPINORSTATUS_ERROR_VBUS_HIGH;

@@ -130,8 +130,8 @@ void foc_reset(foc_t *foc) {
 void foc_update(foc_t *foc, adc_results_t *adc_results, encoder_t *encoder) {
 	//take Park transform of three previous phase current samples
 	//using three differently retarded ;) electrical angles
-	gpio_set(LED_PORT, LED_B);
-	gpio_clear(LED_PORT, LED_B);
+	//gpio_set(LED_PORT, LED_B);
+	//gpio_clear(LED_PORT, LED_B);
 #define FOC_AVG_LEN 8
 	static int32_t id_avg_arr[FOC_AVG_LEN];
 	static int32_t iq_avg_arr[FOC_AVG_LEN];
@@ -162,8 +162,8 @@ void foc_update(foc_t *foc, adc_results_t *adc_results, encoder_t *encoder) {
 	foc->id=id_avg/FOC_AVG_LEN;
 	foc->iq=iq_avg/FOC_AVG_LEN;
 
-	gpio_set(LED_PORT, LED_B);
-	gpio_clear(LED_PORT, LED_B);
+	//gpio_set(LED_PORT, LED_B);
+	//gpio_clear(LED_PORT, LED_B);
 
 	if(foc->control_mode == FOC_CONTROL_MODE_IDQ) {
 		//PI control of id and iq -> vd and vq
@@ -175,8 +175,8 @@ void foc_update(foc_t *foc, adc_results_t *adc_results, encoder_t *encoder) {
 		foc->vd = CONSTRAIN(foc->vd_ref, -VDQ_MAX, VDQ_MAX);
 		foc->vq = CONSTRAIN(foc->vq_ref, -VDQ_MAX, VDQ_MAX);
 	}
-	gpio_set(LED_PORT, LED_B);
-	gpio_clear(LED_PORT, LED_B);
+	//gpio_set(LED_PORT, LED_B);
+	//gpio_clear(LED_PORT, LED_B);
 
 	//inverse Park transform at three differently advanced electric angles,
 	//composed with third harmonic injection/SVM
@@ -216,6 +216,6 @@ void foc_update(foc_t *foc, adc_results_t *adc_results, encoder_t *encoder) {
 	TIM1_CCR2 = foc->pwm_b;
 	TIM1_CCR3 = foc->pwm_c;
 
-	gpio_set(LED_PORT, LED_B);
-	gpio_clear(LED_PORT, LED_B);
+	//gpio_set(LED_PORT, LED_B);
+	//gpio_clear(LED_PORT, LED_B);
 }

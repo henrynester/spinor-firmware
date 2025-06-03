@@ -1,6 +1,12 @@
 #include "flash.h"
+#include "pins.h"
+#include "setup.h"
 #include "config.h"
 #include "constants.h"
+#include "libopencm3/stm32/gpio.h"
+#include "libopencm3/stm32/timer.h"
+#include "libopencm3/cm3/scb.h"
+#include "libopencm3/cm3/nvic.h"
 #include <string.h>
 
 #include "libopencm3/stm32/flash.h"
@@ -58,6 +64,11 @@ uint8_t config_load(void) {
 }
 
 uint8_t config_save(void) {
+	gpio_clear(LED_PORT, LED_R);
+	gpio_clear(LED_PORT, LED_B);
+	timer_disable_break_main_output(TIM1); //stop the motor here
+	nvic_disable_irq(NVIC_DMA1_CHANNEL1_IRQ); //disable ISR
+	DELAY_US(1000000); //let everything come to a stop
 	//make sure we have the magic number and the latest checksum
 	config_db.magic = CONFIG_DB_MAGIC;
 	config_db.magic2 = CONFIG_DB_MAGIC;
@@ -83,6 +94,13 @@ uint8_t config_save(void) {
 			return FLASH_ERROR_WRITE_READBACK_FAIL;
 		}
 	}
+
+	DELAY_US(1000000); //let it sink in to flash just in case :)
+	//and... reboot
+	scb_reset_system();
+	while(1);
+
+	//never runs :P
 	return FLASH_ERROR_OK;
 }
 
@@ -93,18 +111,17 @@ uint8_t config_save(void) {
 
 void config_defaults(void) {
 	//set all outward facing float parameters to their default values
-	for(uint8_t i = 0; i < sizeof(param_reg)/sizeof(parameter_t); i++) {
+	for(uint8_t i = 0; i < sizeof(param_reg)/sizeof(param_reg[0]); i++) {
 		*(param_reg[i].value) = param_reg[i].default_value;
 	}
 	//update internal int config values from parameters
 	config_from_params();
-	config_db.config.theta_e_offset = NONE; //clear this bad boi
 	//convert back to reflect fixed-point errors
 	config_to_params();
 }
 
 parameter_t *config_get_param_by_idx(uint8_t idx) {
-	if(idx < sizeof(param_reg)/sizeof(parameter_t)) {
+	if(idx < sizeof(param_reg)/sizeof(param_reg[0])) {
 		return &param_reg[idx];
 	} else {
 		return NULL;
@@ -112,7 +129,7 @@ parameter_t *config_get_param_by_idx(uint8_t idx) {
 }
 
 parameter_t *config_get_param_by_name(char* name, uint8_t len) {
-        for (uint8_t i=0; i<sizeof(param_reg)/sizeof(parameter_t); i++) {
+        for (uint8_t i=0; i<sizeof(param_reg)/sizeof(param_reg[0]); i++) {
             if (len == strlen(param_reg[i].name) &&
                 strncmp((const char *)name, param_reg[i].name, len) == 0) {
 		    return &param_reg[i];
