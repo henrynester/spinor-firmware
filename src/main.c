@@ -53,6 +53,12 @@ int main(void) {
 		static uint32_t t_loop=0;
 		if(g_uptime_ms > t_loop+5) {
 			t_loop = g_uptime_ms;
+			//send some debug data 
+			static uint8_t id000 = 0;
+			dronecan_publish_debug_KeyValue("iq", controller.out.iq, &id000);
+			static uint8_t id001 = 0;
+			dronecan_publish_debug_KeyValue("ir", controller.out.iq_ref, &id001);
+			//
 			//see if any received message would trigger a FSM event
 			ControllerEventType_t dronecan_event = dronecan_event_pop();
 			if(dronecan_event != EVENT_DEFAULT) {

@@ -180,7 +180,7 @@ void CSM_dispatch_event(CSM_t *self, ControllerEvent_t event) {
 			//can only arm from disarmed state
 			if(self->state == CONTROLLERSTATE_DISARMED) {
 				//and only if already homed
-				if(self->homing_valid) {
+				if(true || self->homing_valid) {
 					CSM_enter_ARMED(self);
 					self->state = CONTROLLERSTATE_ARMED;
 					self->t_start = event.t; //fix race condition

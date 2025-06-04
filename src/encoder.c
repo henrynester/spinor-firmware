@@ -170,8 +170,9 @@ void encoder_pll_load_next(encoder_t *encoder) {
 void encoder_pll_compute_next(encoder_t *encoder) {
 	encoder->theta_m_sensor = _theta_m_sensor;
 	//PLL tracks encoder sensor readings. Call after reading SPI encoder
-	int32_t pll_error = _delta_u14((encoder->theta_m&0x3FFF), _theta_m_sensor);
-	_theta_m_next = encoder->theta_m + encoder->omega_m / 0x100 +
+	int32_t pll_error = _delta_u14(((encoder->theta_m/0x100)&0x3FFF), _theta_m_sensor);
+	pll_error *= 0x100;
+	_theta_m_next = encoder->theta_m + encoder->omega_m +
 	       FMUL(PLL_KP*CONTROL_DT, pll_error);	
 	//integration is done at factor 0x100 larger so that small integrand 
 	//does not vanish
@@ -184,7 +185,7 @@ void encoder_pll_compute_next(encoder_t *encoder) {
 	//after the current FOC iteration completes
 	//This doesn't introduce any lag because the PLL position estimate is
 	//always for the upcoming control loop anyway
-	uint16_t theta_e = ((_theta_m_next & 0x3FFF) * NUM_POLE_PAIRS) & 0x3FFF;
+	uint16_t theta_e = (((_theta_m_next/0x100) & 0x3FFF) * NUM_POLE_PAIRS) & 0x3FFF;
 	theta_e -= encoder->theta_e_offset;
 	theta_e &= 0x3FFF;
 	encoder->theta_e = theta_e; 

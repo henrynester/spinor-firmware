@@ -392,7 +392,7 @@ ControllerEventType_t dronecan_event_pop(void) {
 
 void dronecan_publish_SPINORFeedback(controller_out_t* controller_output_port) {
 	static uint32_t t_last_fb = 0;
-	if(g_uptime_ms <= t_last_fb + 100) return;
+	if(g_uptime_ms <= t_last_fb + 10) return;
 	t_last_fb = g_uptime_ms;
 
 	static struct local_SPINORFeedback msg;
@@ -423,8 +423,10 @@ void dronecan_publish_SPINORStatus(controller_out_t* controller_output_port,
 		controller_output_port->T_fet);
 	status_msg.T_mtr = thermistor_temperature_from_adc(
 		controller_output_port->T_mtr);
+	//FOC execution time as % of PWM period
 	status_msg.foc_deadline_perc = 
 	   100.0*(float)controller_output_port->t_exec_foc / ((float)PWM_DT*1.0e6);
+	//control loop total exec time as % of 3x PWM periods
 	status_msg.controller_cpu_perc =
 	   100.0*(float)controller_output_port->t_exec_controller 
 	   / ((float)CONTROL_DT*1.0e6);
@@ -433,7 +435,12 @@ void dronecan_publish_SPINORStatus(controller_out_t* controller_output_port,
 	status_msg.armed = (csm->state == CONTROLLERSTATE_ARMED) ? true : false;	
 	status_msg.homed = (csm->homing_valid) ? true : false;
 	status_msg.state = csm->state;
-	status_msg.agc = controller_output_port->agc;
+	//encoder AGC runs 0 (high B field) to 255 (low B field)
+	//convert this from 100% to 0%
+	status_msg.encoder_B_range_perc = 
+	   100 - (uint8_t)(
+	      100.0*(float)controller_output_port->encoder_agc/(float)0x100
+	   );
 
 	uint8_t buffer[LOCAL_SPINORSTATUS_MAX_SIZE];    
 	static uint8_t transfer_id = 0;

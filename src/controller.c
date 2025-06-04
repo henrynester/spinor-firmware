@@ -117,9 +117,18 @@ void controller_update(controller_t *self) {
 		if(self->config->invert_direction) {
 			theta_m_ref = -theta_m_ref;
 		}
-		int32_t theta_m_error = self->encoder.theta_m_homed - theta_m_ref; 
-		theta_m_error = CONSTRAIN(theta_m_error, -INT16_MAX, INT16_MAX); //avoid overflow
-		omega_m_ref = FMUL(0.1*-POS_KP*THETA_M_LSB/OMEGA_M_LSB, theta_m_error);
+		int32_t theta_m_error =
+			self->encoder.theta_m_homed - theta_m_ref; 
+		theta_m_error /= 256;
+		theta_m_error = CONSTRAIN(theta_m_error, -INT16_MAX, INT16_MAX); 
+		/*if(theta_m_error < 0x10000 && theta_m_error > -0x10000) {
+			theta_m_error = 0;
+		}*/
+		omega_m_ref = -4*FMUL(
+			(float)0x100*POS_BANDWIDTH*THETA_M_LSB/OMEGA_M_LSB/4.0,
+			theta_m_error
+			);	
+		//omega_m_ref = -4*theta_m_error; //CONSTRAIN(omega_m_ref, -5000, 5000);
 	} 
 	//or use direct velocity control
 	else if(self->_in.control_mode == CONTROL_MODE_VEL) {
@@ -137,12 +146,16 @@ void controller_update(controller_t *self) {
 			- omega_m_ref*OMEGA_M_AVG_LEN;
 		//reduce effective gain at higher commanded speeds
 		//to avoid oscillations
-		//int32_t factor = 4*omega_m_ref;
+		//int32_t factor = 16*omega_m_ref;
 		//if(factor > 0x7800) {
 		//	factor = 0x7800;
 		//}
 		//omega_m_err -= (omega_m_err * factor) / 0x8000;
-		int32_t omega_m_tau_ref = -FMUL(VEL_KP*OMEGA_M_LSB/TORQUE_IDQ_LSB, omega_m_err) - self->vel.omega_m_err_integral;
+		int32_t omega_m_tau_ref = 0;
+	        omega_m_tau_ref += -FMUL(
+			VEL_KP*OMEGA_M_LSB/OMEGA_M_AVG_LEN/TORQUE_IDQ_LSB,
+			omega_m_err);
+		omega_m_tau_ref += -self->vel.omega_m_err_integral / 0x1000;
 		uint8_t saturated = false;
 		if(omega_m_tau_ref <= TORQUE_MIN_INT) {
 			omega_m_tau_ref = TORQUE_MIN_INT;
@@ -158,7 +171,7 @@ void controller_update(controller_t *self) {
 		} else {
 			self->vel.omega_m_err_integral +=
 				FMUL(
-					VEL_KI*OMEGA_M_LSB/TORQUE_IDQ_LSB*CONTROL_DT, 
+					(float)0x1000*VEL_KI*OMEGA_M_LSB/OMEGA_M_AVG_LEN/TORQUE_IDQ_LSB*CONTROL_DT, 
 					omega_m_err
 				);
 		}
@@ -272,6 +285,7 @@ void controller_rendezvous_sync_inout(volatile controller_t *self) {
 }
 
 uint8_t controller_slow_safety_checks(controller_t *self) {
+	static uint8_t error_counter = 0;
 	controller_out_t out = self->out;	
 	//adc decreases with temp, so use adc<threshold
 	if(out.T_fet < SAFETY_TFET_MAX_INT) {
@@ -291,14 +305,15 @@ uint8_t controller_slow_safety_checks(controller_t *self) {
 	}
 	if(out.omega_m > SAFETY_VEL_MAX_INT
 			|| out.omega_m < -SAFETY_VEL_MAX_INT) {
-		//omega_m is transiently high at startup, don't know why
-		//return LOCAL_SPINORSTATUS_ERROR_VEL_HIGH;
+		return LOCAL_SPINORSTATUS_ERROR_VEL_HIGH;
 	}
 	if(out.v_bus > SAFETY_VBUS_MAX_INT) {
 		return LOCAL_SPINORSTATUS_ERROR_VBUS_HIGH;
 	}
 	if(out.v_bus < SAFETY_VBUS_MIN_INT) {
-		return LOCAL_SPINORSTATUS_ERROR_VBUS_LOW;
+		if(error_counter >= 4) {
+			return LOCAL_SPINORSTATUS_ERROR_VBUS_LOW;
+		}
 	}
 	if(out.fast_error != FAST_ERROR_OK) {
 		if(out.fast_error == FAST_ERROR_IABC_OVER) {
@@ -310,5 +325,6 @@ uint8_t controller_slow_safety_checks(controller_t *self) {
 		}
 	}
 
+	error_counter = 0;
 	return LOCAL_SPINORSTATUS_ERROR_OK;
 }

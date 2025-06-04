@@ -23,8 +23,8 @@ typedef struct {
 	control_mode_t control_mode;
 	int16_t id_ref;
 	int16_t iq_ref;
-	int16_t omega_m_ref;
-	int16_t theta_m_ref;
+	int32_t omega_m_ref;
+	int32_t theta_m_ref;
 	int16_t vd_ref;
 	int16_t vq_ref;
 	uint16_t theta_e_ref;
@@ -82,7 +82,7 @@ typedef struct {
 
 	struct {
 		int32_t omega_m_err_integral;
-#define OMEGA_M_AVG_LEN 16
+#define OMEGA_M_AVG_LEN 1 
 		int32_t omega_m_avgarr[OMEGA_M_AVG_LEN];
 		int32_t omega_m_avg;
 		uint8_t omega_m_avgidx;

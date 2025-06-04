@@ -37,7 +37,7 @@
 #define PWM_ABC_LSB ((VBUS_NOMINAL*(float)PWM_MAX/(float)PWM_TIMER_RELOAD)
 //14-bit encoder count
 #define ENCODER_CPR 0x4000
-#define THETA_M_LSB (2.0*M_PI/OUTPUT_GEARING/(float)ENCODER_CPR) //rad output
+#define THETA_M_LSB (2.0*M_PI/OUTPUT_GEARING/(float)ENCODER_CPR/(float)0x100) //rad output
 #define THETA_E_LSB (2.0*M_PI/(float)ENCODER_CPR) //rad electrical phase
 #define THETA_M_MIN_INT -(int32_t)((2.0*M_PI)/THETA_M_LSB)						  
 #define THETA_M_MAX_INT (int32_t)((2.0*M_PI)/THETA_M_LSB)						  
@@ -47,8 +47,6 @@
 #define VEL_LIMIT_INT (int32_t)(VEL_LIMIT/OMEGA_M_LSB)
 //100k-10k voltage divider, 3x samples summed for averaging
 #define VBUS_LSB (3.3*11.0/(float)0x1000/3.0) //V
-
-#define NONE INT16_MIN
 
 //convert safety limits
 #define SAFETY_IABC_MAX_INT (uint16_t)( (uint16_t)(SAFETY_IABC_MAX/IABC_LSB) + 0x3000/2)

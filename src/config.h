@@ -24,10 +24,10 @@
 #define FOC_KI FOC_BANDWIDTH*PHASE_RESISTANCE //Ohm/s
 
 //Velocity control properties
-#define VEL_BANDWIDTH 500.0 //rad/s
+#define VEL_BANDWIDTH 10000.0 //rad/s
 #define VEL_LIMIT ((120.0)/60.0*2*M_PI) //rad/s at output
 #define VEL_KP (2.0*ROTOR_INERTIA*VEL_BANDWIDTH) //Nm/(rad/s)
-#define VEL_KI (0.25*VEL_KP*VEL_KP/ROTOR_INERTIA) //Nm/(rad) 
+#define VEL_KI (0.25*VEL_KP*VEL_KP/ROTOR_INERTIA/100.0) //Nm/(rad) 
 #define TORQUE_LIMIT 1.0 //Nm
 //fraction of VEL_LIMIT at which torque limit starts to fall off linearly with speed
 #define TORQUE_LIMIT_SLOPE_FRACTION 0.5 
@@ -35,7 +35,7 @@
 //Position control properties
 #define POS_LIMIT_MIN 0
 #define POS_LIMIT_MAX 2*M_PI
-#define POS_BANDWIDTH 100.0
+#define POS_BANDWIDTH 75.0
 #define POS_KP POS_BANDWIDTH
 
 //Power supply properties
@@ -57,7 +57,7 @@
 #define SAFETY_IBUS_MAX 1.0
 #define SAFETY_IBUS_REGEN_MAX 1.0
 #define SAFETY_IABC_MAX 10.0
-#define SAFETY_VEL_MAX (200.0)/60.0*2*M_PI
+#define SAFETY_VEL_MAX (300.0)/60.0*2*M_PI
 
 //dronecan can r/w this struct, which has pointers
 //to the main config struct above. Default, min, and max
