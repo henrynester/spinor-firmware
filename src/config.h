@@ -24,10 +24,10 @@
 #define FOC_KI FOC_BANDWIDTH*PHASE_RESISTANCE //Ohm/s
 
 //Velocity control properties
-#define VEL_BANDWIDTH 10000.0 //rad/s
-#define VEL_LIMIT ((120.0)/60.0*2*M_PI) //rad/s at output
+#define VEL_BANDWIDTH 5000.0 //rad/s
+#define VEL_LIMIT ((360.0)/60.0*2*M_PI) //rad/s at output
 #define VEL_KP (2.0*ROTOR_INERTIA*VEL_BANDWIDTH) //Nm/(rad/s)
-#define VEL_KI (0.25*VEL_KP*VEL_KP/ROTOR_INERTIA/100.0) //Nm/(rad) 
+#define VEL_KI (0.25*VEL_KP*VEL_KP/ROTOR_INERTIA/25.0) //Nm/(rad) 
 #define TORQUE_LIMIT 1.0 //Nm
 //fraction of VEL_LIMIT at which torque limit starts to fall off linearly with speed
 #define TORQUE_LIMIT_SLOPE_FRACTION 0.5 

@@ -125,7 +125,7 @@ void controller_update(controller_t *self) {
 			theta_m_error = 0;
 		}*/
 		omega_m_ref = -4*FMUL(
-			(float)0x100*POS_BANDWIDTH*THETA_M_LSB/OMEGA_M_LSB/4.0,
+			(float)0x100*POS_KP*THETA_M_LSB/OMEGA_M_LSB/4.0,
 			theta_m_error
 			);	
 		//omega_m_ref = -4*theta_m_error; //CONSTRAIN(omega_m_ref, -5000, 5000);
@@ -151,11 +151,12 @@ void controller_update(controller_t *self) {
 		//	factor = 0x7800;
 		//}
 		//omega_m_err -= (omega_m_err * factor) / 0x8000;
+
 		int32_t omega_m_tau_ref = 0;
 	        omega_m_tau_ref += -FMUL(
-			VEL_KP*OMEGA_M_LSB/OMEGA_M_AVG_LEN/TORQUE_IDQ_LSB,
+			VEL_KP*OMEGA_M_LSB/(float)OMEGA_M_AVG_LEN/TORQUE_IDQ_LSB,
 			omega_m_err);
-		omega_m_tau_ref += -self->vel.omega_m_err_integral / 0x1000;
+		omega_m_tau_ref += -self->vel.omega_m_err_integral/0x100;
 		uint8_t saturated = false;
 		if(omega_m_tau_ref <= TORQUE_MIN_INT) {
 			omega_m_tau_ref = TORQUE_MIN_INT;
@@ -169,13 +170,17 @@ void controller_update(controller_t *self) {
 			self->vel.omega_m_err_integral -= 
 				self->vel.omega_m_err_integral / 64;
 		} else {
-			self->vel.omega_m_err_integral +=
-				FMUL(
-					(float)0x1000*VEL_KI*OMEGA_M_LSB/OMEGA_M_AVG_LEN/TORQUE_IDQ_LSB*CONTROL_DT, 
-					omega_m_err
+			int32_t omega_m_err_big = omega_m_err*0x100;
+			omega_m_err_big = CONSTRAIN(omega_m_err_big, 
+					-INT16_MAX, INT16_MAX);
+			self->vel.omega_m_err_integral += FMUL(
+				VEL_KI*OMEGA_M_LSB/(float)OMEGA_M_AVG_LEN*CONTROL_DT
+				   /TORQUE_IDQ_LSB, 
+				omega_m_err_big
 				);
 		}
-		iq_ref = omega_m_tau_ref;
+
+		iq_ref = omega_m_tau_ref; 
 	} 
 	//or use direct torque control
 	else {
@@ -308,9 +313,13 @@ uint8_t controller_slow_safety_checks(controller_t *self) {
 		return LOCAL_SPINORSTATUS_ERROR_VEL_HIGH;
 	}
 	if(out.v_bus > SAFETY_VBUS_MAX_INT) {
-		return LOCAL_SPINORSTATUS_ERROR_VBUS_HIGH;
+		error_counter++;
+		if(error_counter >= 4) {
+			return LOCAL_SPINORSTATUS_ERROR_VBUS_HIGH;
+		}
 	}
 	if(out.v_bus < SAFETY_VBUS_MIN_INT) {
+		error_counter++;
 		if(error_counter >= 4) {
 			return LOCAL_SPINORSTATUS_ERROR_VBUS_LOW;
 		}

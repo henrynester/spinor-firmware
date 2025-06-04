@@ -15,13 +15,21 @@
 #define CONFIG_DB_MAGIC 0xFFC0FFEE 
 
 typedef struct {
-	float pos_limit_max;
-	float invert_direction;
+	float pos_limit_max; //radians
+	float invert_direction; //0 or 1
 
-	float node_id;
-	float actuator_index; 
+	float node_id; //0...127 (0=anon)
+	float actuator_index; //0...15
+
+	float pos_kp; //rad/s / rad
+	float vel_kp; //Nm / (rad/s)
+	float vel_ki; //Nm / (rad/s)s
 } parameter_storage_t;
 parameter_storage_t param_db;
+
+#define POS_KP_LSB (float)0x100/4.0*THETA_M_LSB/OMEGA_M_LSB
+#define VEL_KP_LSB OMEGA_M_LSB/TORQUE_IDQ_LSB
+#define VEL_KI_LSB OMEGA_M_LSB*CONTROL_DT/TORQUE_IDQ_LSB 
 
 parameter_t param_reg[] = {
 	{"pos_limit_max", &param_db.pos_limit_max,
@@ -33,6 +41,13 @@ parameter_t param_reg[] = {
 		0.0, 42.0, 127.0},
 	{"actuator_index", &param_db.actuator_index, 
 		0.0, 0.0, 15.0},
+
+	{"pos_kp", &param_db.pos_kp, 
+		POS_KP, 0.0, 1000.0},
+	{"vel_kp", &param_db.vel_kp, 
+		VEL_KP, 0.0, 10.0},
+	{"vel_ki", &param_db.vel_ki, 
+		VEL_KI, 0.0, 15.0}
 };
 
 
