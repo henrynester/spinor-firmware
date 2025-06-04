@@ -44,7 +44,7 @@ typedef struct {
 	controller_out_t *isr_out;
 	config_t *config;
 	uint32_t t_start;
-	int32_t offset_accumulate;
+	int64_t offset_accumulate;
 	uint16_t num_samples;
 	uint8_t encoder_offset_valid;
 	uint8_t homing_valid;

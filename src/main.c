@@ -58,6 +58,12 @@ int main(void) {
 			dronecan_publish_debug_KeyValue("iq", controller.out.iq, &id000);
 			static uint8_t id001 = 0;
 			dronecan_publish_debug_KeyValue("ir", controller.out.iq_ref, &id001);
+			static uint8_t id002 = 0;
+			dronecan_publish_debug_KeyValue("ac", csm.offset_accumulate, &id002);
+			static uint8_t id003 = 0;
+			dronecan_publish_debug_KeyValue("ti", controller.in.theta_e_ref, &id003);
+			static uint8_t id004 = 0;
+			dronecan_publish_debug_KeyValue("to", controller.out.theta_e, &id004);
 			//
 			//see if any received message would trigger a FSM event
 			ControllerEventType_t dronecan_event = dronecan_event_pop();

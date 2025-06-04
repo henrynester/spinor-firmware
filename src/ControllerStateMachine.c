@@ -30,11 +30,11 @@ static void CSM_enter_MOVE(CSM_t *self) {
 	self->isr_in->theta_e_ref &= 0x3FFF;
 }
 static void CSM_enter_MEASURE(CSM_t *self) {
-	self->offset_accumulate += (int32_t)_delta_u14(self->isr_in->theta_e_ref, self->isr_out->theta_e);
+	self->offset_accumulate += (int64_t)_delta_u14(self->isr_in->theta_e_ref, self->isr_out->theta_e);
 	self->num_samples++;
 }
 static void CSM_exit_CALIBRATE_ENCODER(CSM_t *self) {
-	self->config->theta_e_offset = (int32_t)self->offset_accumulate / (int32_t)self->num_samples;
+	self->config->theta_e_offset = (int16_t)((int64_t)self->offset_accumulate / (int64_t)self->num_samples);
 	self->encoder_offset_valid = true;
 }
 static void CSM_enter_HOMING(CSM_t *self) {

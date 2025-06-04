@@ -59,7 +59,8 @@ void controller_update(controller_t *self) {
 	//TIME CRITICAL: must complete before next PWM DMA request, t~1/24kHz*(75% mod depth)=31us 
 	foc_update(&self->foc, &self->adc_results, &self->encoder);
 
-	self->_out.t_exec_foc = SYSTICK_TO_DELTA_US(t_exec_start, systick_get_value()); 
+	volatile uint32_t t_foc_end = systick_get_value();
+	self->_out.t_exec_foc = SYSTICK_TO_DELTA_US(t_exec_start, t_foc_end); 
 
 	//TIME CRITICAL: must occur close to next PWM DMA request 
 	//(within 1/2 1/24kHz period is OK) and with low jitter
@@ -119,16 +120,19 @@ void controller_update(controller_t *self) {
 		}
 		int32_t theta_m_error =
 			self->encoder.theta_m_homed - theta_m_ref; 
-		theta_m_error /= 256;
+		//theta_m_error has a very high resolution, so the int16
+		//range we multiply with covers a very small radians angle
+		//increase by a factor 256 so that the error covers +/- pi/2 rad
+		theta_m_error /= 0x100;
 		theta_m_error = CONSTRAIN(theta_m_error, -INT16_MAX, INT16_MAX); 
 		/*if(theta_m_error < 0x10000 && theta_m_error > -0x10000) {
 			theta_m_error = 0;
 		}*/
-		omega_m_ref = -4*FMUL(
-			(float)0x100*POS_KP*THETA_M_LSB/OMEGA_M_LSB/4.0,
-			theta_m_error
-			);	
-		//omega_m_ref = -4*theta_m_error; //CONSTRAIN(omega_m_ref, -5000, 5000);
+		//we have to compensate for the 0x100 factor by moving it
+		//to the other side of the multiply as much as possible without
+		//that side also overflowing int16. We can keep 0x10 of it in the 
+		//multiplier, and the rest goes outside the multiply	
+		omega_m_ref = -(self->config->pos_kp * theta_m_error) / 0x2000;
 	} 
 	//or use direct velocity control
 	else if(self->_in.control_mode == CONTROL_MODE_VEL) {
@@ -153,9 +157,7 @@ void controller_update(controller_t *self) {
 		//omega_m_err -= (omega_m_err * factor) / 0x8000;
 
 		int32_t omega_m_tau_ref = 0;
-	        omega_m_tau_ref += -FMUL(
-			VEL_KP*OMEGA_M_LSB/(float)OMEGA_M_AVG_LEN/TORQUE_IDQ_LSB,
-			omega_m_err);
+	        omega_m_tau_ref += -(self->config->vel_kp * omega_m_err) / 0x1000;
 		omega_m_tau_ref += -self->vel.omega_m_err_integral/0x100;
 		uint8_t saturated = false;
 		if(omega_m_tau_ref <= TORQUE_MIN_INT) {
@@ -170,14 +172,15 @@ void controller_update(controller_t *self) {
 			self->vel.omega_m_err_integral -= 
 				self->vel.omega_m_err_integral / 64;
 		} else {
-			int32_t omega_m_err_big = omega_m_err*0x100;
-			omega_m_err_big = CONSTRAIN(omega_m_err_big, 
-					-INT16_MAX, INT16_MAX);
-			self->vel.omega_m_err_integral += FMUL(
-				VEL_KI*OMEGA_M_LSB/(float)OMEGA_M_AVG_LEN*CONTROL_DT
-				   /TORQUE_IDQ_LSB, 
-				omega_m_err_big
-				);
+			//we get quantization error in the integrand
+			//when omega_m_err is too small after multiplication
+			//with the VEL_KI integer representation to accumulate
+			//more than one or two LSBs, scale up by 0x100 to fix
+		//	int32_t omega_m_err_big = omega_m_err*0x100;
+		//	omega_m_err_big = CONSTRAIN(omega_m_err_big, 
+		//			-INT16_MAX, INT16_MAX);
+			self->vel.omega_m_err_integral += 
+				(self->config->vel_ki * omega_m_err) / 0x1000;
 		}
 
 		iq_ref = omega_m_tau_ref; 
@@ -310,7 +313,10 @@ uint8_t controller_slow_safety_checks(controller_t *self) {
 	}
 	if(out.omega_m > SAFETY_VEL_MAX_INT
 			|| out.omega_m < -SAFETY_VEL_MAX_INT) {
-		return LOCAL_SPINORSTATUS_ERROR_VEL_HIGH;
+		error_counter++;
+		if(error_counter >= 16) {
+			return LOCAL_SPINORSTATUS_ERROR_VEL_HIGH;
+		}
 	}
 	if(out.v_bus > SAFETY_VBUS_MAX_INT) {
 		error_counter++;

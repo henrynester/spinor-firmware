@@ -11,6 +11,10 @@ typedef struct {
 
 	uint8_t node_id;
 	uint8_t actuator_index; 
+
+	int32_t pos_kp;
+	int32_t vel_kp;
+	int32_t vel_ki;
 } config_t;
 
 typedef enum {

@@ -19,7 +19,7 @@
 
 #define SYSTICK_TO_DELTA_US(start, end) (end < start) ? ((start - end)/SYSTICK_PER_US) : (((start + SYSTICK_PER_MS) - end)/SYSTICK_PER_US)
 #define T_EXEC_FOC_MAX (uint16_t)(1.0e6/(float)PWM_FREQ *0.90)
-#define T_EXEC_FOC_POS_VEL_MAX (uint16_t)(1.0e6/(float)CONTROL_FREQ *0.85) 
+#define T_EXEC_FOC_POS_VEL_MAX (uint16_t)(1.0e6/(float)CONTROL_FREQ *0.95) 
 
 
 //engineering unit->internal representation conversion factors
@@ -47,6 +47,11 @@
 #define VEL_LIMIT_INT (int32_t)(VEL_LIMIT/OMEGA_M_LSB)
 //100k-10k voltage divider, 3x samples summed for averaging
 #define VBUS_LSB (3.3*11.0/(float)0x1000/3.0) //V
+
+//LSB of PID parameter integer representations
+#define POS_KP_LSB (1.0/(float)0x1000/(THETA_M_LSB*(float)0x100/OMEGA_M_LSB))
+#define VEL_KP_LSB (1.0/(float)0x1000/(OMEGA_M_LSB/TORQUE_IDQ_LSB))
+#define VEL_KI_LSB (1.0/(float)0x100000/(OMEGA_M_LSB*CONTROL_DT/TORQUE_IDQ_LSB))
 
 //convert safety limits
 #define SAFETY_IABC_MAX_INT (uint16_t)( (uint16_t)(SAFETY_IABC_MAX/IABC_LSB) + 0x3000/2)

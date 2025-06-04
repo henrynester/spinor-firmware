@@ -12,7 +12,10 @@
 //single-instruction multiply on M0 processor makes this efficient
 #define FMUL(floatingpoint, fixedpoint) (( (int32_t)((float)0x8000*floatingpoint) * (int32_t)(fixedpoint) )/0x8000)
 
+#define MUL(a, b) (( (int32_t)a * (int32_t)b )/0x8000)
+
 #define CONSTRAIN(x, min, max) (((x)<(min))?(min) : (((x)>(max)) ? (max) : (x)))
+
 #define OUTSIDE(x, min, max) ((x)<(min) || (x)>(max))
 
 #define U14_MAX 0x3FFF //14-bit

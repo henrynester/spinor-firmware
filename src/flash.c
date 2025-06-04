@@ -27,13 +27,9 @@ typedef struct {
 } parameter_storage_t;
 parameter_storage_t param_db;
 
-#define POS_KP_LSB (float)0x100/4.0*THETA_M_LSB/OMEGA_M_LSB
-#define VEL_KP_LSB OMEGA_M_LSB/TORQUE_IDQ_LSB
-#define VEL_KI_LSB OMEGA_M_LSB*CONTROL_DT/TORQUE_IDQ_LSB 
-
 parameter_t param_reg[] = {
 	{"pos_limit_max", &param_db.pos_limit_max,
-		-100.0*POS_LIMIT_MAX, +POS_LIMIT_MAX, 100.0*POS_LIMIT_MAX},
+		0.0, +POS_LIMIT_MAX, 100.0*POS_LIMIT_MAX},
 	{"invert_direction", &param_db.invert_direction, 
 		0.0, 0.0, 1.0},
 
@@ -42,12 +38,15 @@ parameter_t param_reg[] = {
 	{"actuator_index", &param_db.actuator_index, 
 		0.0, 0.0, 15.0},
 
+	//max values chosen such that integer representation of the pid
+	//coefficients stays inside an int16 
+	//(which is what we can multiply efficiently)
 	{"pos_kp", &param_db.pos_kp, 
-		POS_KP, 0.0, 1000.0},
+		0, POS_KP, INT16_MAX*POS_KP_LSB},
 	{"vel_kp", &param_db.vel_kp, 
-		VEL_KP, 0.0, 10.0},
+		0, VEL_KP, INT16_MAX*VEL_KP_LSB},
 	{"vel_ki", &param_db.vel_ki, 
-		VEL_KI, 0.0, 15.0}
+		0, VEL_KI, INT16_MAX*VEL_KI_LSB}
 };
 
 
@@ -160,13 +159,24 @@ void config_from_params(void) {
 
 	c->node_id = param_db.node_id;
 	c->actuator_index = param_db.actuator_index;
+
+	c->pos_kp = CONSTRAIN((int32_t)(param_db.pos_kp / POS_KP_LSB)
+		, -INT16_MAX, INT16_MAX);
+	c->vel_kp = CONSTRAIN((int32_t)(param_db.vel_kp / VEL_KP_LSB)
+		, -INT16_MAX, INT16_MAX);
+	c->vel_ki = CONSTRAIN((int32_t)(param_db.vel_ki / VEL_KI_LSB)
+		, -INT16_MAX, INT16_MAX);
 }
 
 void config_to_params(void) {
 	config_t *c = &config_db.config;
-	param_db.pos_limit_max = c->pos_limit_max * THETA_M_LSB;
+	param_db.pos_limit_max = (float)c->pos_limit_max * THETA_M_LSB;
 	param_db.invert_direction = (c->invert_direction) ? 1.0 : 0.0;
 
 	param_db.node_id = c->node_id;
 	param_db.actuator_index = c->actuator_index;
+
+	param_db.pos_kp = (float)c->pos_kp * POS_KP_LSB;
+	param_db.vel_kp = (float)c->vel_kp * VEL_KP_LSB;
+	param_db.vel_ki = (float)c->vel_ki * VEL_KI_LSB;
 }
