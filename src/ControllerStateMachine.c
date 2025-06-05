@@ -11,6 +11,8 @@ static void CSM_enter_CALIBRATE_ENCODER(CSM_t *self) {
 	self->isr_in->vd_ref = CAL_OFFSET_VD;
 	self->isr_in->vq_ref = 0;
 
+	self->config->theta_e_offset = 0; // need to clear the previous offset value
+					  // or it will mess up this calibration
 	self->encoder_offset_valid = false;
 	self->num_samples = 0;
 	self->offset_accumulate = 0;
@@ -130,11 +132,12 @@ void CSM_dispatch_event(CSM_t *self, ControllerEvent_t event) {
 					self->state = CONTROLLERSTATE_DISARMED;
 				}
 			} else if(self->state == CONTROLLERSTATE_ARMED) {
-				//arming message timeout causes an error 
+				//arming message timeout causes disarm 
 				if(event.t > self->t_start+1000) {
-					self->error = LOCAL_SPINORSTATUS_ERROR_COMMAND_TIMEOUT;
-					CSM_enter_DISARMED_ERROR(self);
-					self->state = CONTROLLERSTATE_DISARMED_ERROR;
+					//no error, that was annoying to clear all the time
+					//self->error = LOCAL_SPINORSTATUS_ERROR_COMMAND_TIMEOUT;
+					CSM_enter_DISARMED(self);
+					self->state = CONTROLLERSTATE_DISARMED;
 				}
 			}
 			//used at startup
